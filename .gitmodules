@@ -1,0 +1,3 @@
+[submodule "database/k8s-postgresql"]
+	path = database/k8s-postgresql
+	url = https://github.com/mkolb22/k8s-postgresql.git

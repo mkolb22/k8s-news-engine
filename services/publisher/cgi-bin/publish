@@ -1,0 +1,33 @@
+#!/usr/bin/env python3
+import cgi, cgitb, os, sys, time, urllib.parse
+cgitb.enable()
+
+content = sys.stdin.buffer.read()
+
+qs = os.environ.get("QUERY_STRING", "")
+q = urllib.parse.parse_qs(qs)
+event_id = (q.get("event_id", ["unknown"])[0]).strip()
+fmt = (q.get("format", ["md"])[0]).strip().lower()
+ext = "html" if fmt == "html" else "md"
+
+base = f"/var/www/htdocs/events/{event_id}"
+os.makedirs(base, exist_ok=True)
+ts = time.strftime("%Y%m%d-%H%M%S")
+out_path = f"{base}/summary-{ts}.{ext}"
+
+with open(out_path, "wb") as f:
+    f.write(content)
+
+index_path = f"{base}/index.html"
+if ext == "md":
+    html = b"""<!doctype html><meta charset="utf-8">
+<title>Event Summary</title><h1>Latest Summary</h1><pre style="white-space:pre-wrap">""" + content + b"</pre>"
+    with open(index_path, "wb") as f:
+        f.write(html)
+else:
+    with open(index_path, "wb") as f:
+        f.write(content)
+
+print("Status: 201 Created")
+print("Content-Type: application/json\n")
+print(f'{{"status":"ok","event_id":"{event_id}","path":"{out_path}"}}')

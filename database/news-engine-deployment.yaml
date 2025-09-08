@@ -1,0 +1,200 @@
+---
+# Custom PostgreSQL deployment for K8s News Engine
+# Based on k8s-postgresql submodule with news engine specific schema
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgresql
+  namespace: postgresql
+  labels:
+    app.kubernetes.io/name: postgresql
+    app.kubernetes.io/component: database
+    app.kubernetes.io/version: "16"
+    app.kubernetes.io/part-of: news-engine
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: postgresql
+      app.kubernetes.io/component: database
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: postgresql
+        app.kubernetes.io/component: database
+        app.kubernetes.io/version: "16"
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9187"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: postgresql
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+        fsGroupChangePolicy: "OnRootMismatch"
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+      - name: init-schema
+        image: postgres:16-alpine
+        command: ['sh', '-c']
+        args:
+          - |
+            cp /news-engine-schema/* /docker-entrypoint-initdb.d/ 2>/dev/null || true
+            cp /news-engine-seed/* /docker-entrypoint-initdb.d/ 2>/dev/null || true
+            ls -la /docker-entrypoint-initdb.d/
+        volumeMounts:
+        - name: news-engine-schema
+          mountPath: /news-engine-schema
+        - name: news-engine-seed
+          mountPath: /news-engine-seed
+        - name: initdb
+          mountPath: /docker-entrypoint-initdb.d
+      containers:
+      - name: postgresql
+        image: postgres:16-alpine
+        imagePullPolicy: Always
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          runAsUser: 999
+          runAsGroup: 999
+          capabilities:
+            drop:
+            - ALL
+        ports:
+        - name: postgresql
+          containerPort: 5432
+          protocol: TCP
+        env:
+        - name: POSTGRES_USER
+          valueFrom:
+            secretKeyRef:
+              name: postgresql-credentials
+              key: postgres-user
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: postgresql-credentials
+              key: postgres-password
+        - name: POSTGRES_DB
+          value: "truthdb"
+        - name: POSTGRES_INITDB_ARGS
+          value: "--encoding=UTF8 --locale=en_US.UTF-8"
+        - name: PGDATA
+          value: "/var/lib/postgresql/data/pgdata"
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        livenessProbe:
+          exec:
+            command:
+            - pg_isready
+            - -U
+            - postgres
+            - -d
+            - truthdb
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          exec:
+            command:
+            - pg_isready
+            - -U
+            - postgres
+            - -d
+            - truthdb
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+        volumeMounts:
+        - name: postgresql-config
+          mountPath: /etc/postgresql
+          readOnly: true
+        - name: postgresql-data
+          mountPath: /var/lib/postgresql/data
+        - name: tmp
+          mountPath: /tmp
+        - name: run
+          mountPath: /var/run/postgresql
+        - name: initdb
+          mountPath: /docker-entrypoint-initdb.d
+          readOnly: true
+      - name: postgres-exporter
+        image: quay.io/prometheuscommunity/postgres-exporter:v0.15.0
+        imagePullPolicy: Always
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          runAsUser: 999
+          runAsGroup: 999
+          capabilities:
+            drop:
+            - ALL
+        ports:
+        - name: metrics
+          containerPort: 9187
+          protocol: TCP
+        env:
+        - name: DATA_SOURCE_NAME
+          value: "postgresql://postgres:$(POSTGRES_PASSWORD)@localhost:5432/truthdb?sslmode=disable"
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: postgresql-credentials
+              key: postgres-password
+        resources:
+          requests:
+            memory: "32Mi"
+            cpu: "10m"
+          limits:
+            memory: "64Mi"
+            cpu: "50m"
+        livenessProbe:
+          httpGet:
+            path: /
+            port: metrics
+          initialDelaySeconds: 15
+          periodSeconds: 20
+        readinessProbe:
+          httpGet:
+            path: /
+            port: metrics
+          initialDelaySeconds: 5
+          periodSeconds: 10
+      volumes:
+      - name: postgresql-config
+        configMap:
+          name: postgresql-config
+          defaultMode: 0440
+      - name: news-engine-schema
+        configMap:
+          name: news-engine-schema
+          defaultMode: 0440
+      - name: news-engine-seed
+        configMap:
+          name: news-engine-seed
+          defaultMode: 0440
+      - name: postgresql-data
+        emptyDir: {}
+      - name: tmp
+        emptyDir: {}
+      - name: run
+        emptyDir: {}
+      - name: initdb
+        emptyDir: {}

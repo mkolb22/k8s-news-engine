@@ -1,0 +1,25 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: publisher-lighttpd
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: publisher-lighttpd
+  template:
+    metadata:
+      labels:
+        app: publisher-lighttpd
+    spec:
+      containers:
+      - name: lighttpd
+        image: publisher-lighttpd:latest
+        ports:
+        - containerPort: 8080
+        volumeMounts:
+        - name: www
+          mountPath: /var/www/htdocs
+      volumes:
+      - name: www
+        emptyDir: {}

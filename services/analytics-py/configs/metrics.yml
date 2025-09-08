@@ -1,0 +1,15 @@
+weights:
+  days: 0.20
+  coverage: 0.25
+  coherence: 0.15
+  best_source: 0.10
+  corroboration: 0.20
+  correction_risk: 0.10
+
+params:
+  recency_tau_days: 5
+  coverage_saturation: 20
+  coherence_top_k_terms: 15
+  coherence_min_articles: 2
+  corroboration_cap: 10
+  high_risk_cap: 0.05

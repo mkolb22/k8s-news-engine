@@ -1,0 +1,124 @@
+name: Jira Integration
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    types: [opened, closed, synchronize]
+  issues:
+    types: [opened, closed]
+
+jobs:
+  jira-transition:
+    name: Update Jira Issues
+    runs-on: ubuntu-latest
+    steps:
+      - name: Login to Jira
+        uses: atlassian/gajira-login@v3
+        env:
+          JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
+          JIRA_USER_EMAIL: ${{ secrets.JIRA_USER_EMAIL }}
+          JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+
+      - name: Extract Jira Issue Key from Branch/PR
+        id: extract-key
+        run: |
+          # Extract Jira key from branch name or PR title
+          ISSUE_KEY=""
+          
+          # Check branch name first
+          if [[ "${{ github.head_ref || github.ref_name }}" =~ (K8SNE-[0-9]+) ]]; then
+            ISSUE_KEY="${BASH_REMATCH[1]}"
+          fi
+          
+          # Check PR title if no key found in branch
+          if [[ -z "$ISSUE_KEY" && "${{ github.event.pull_request.title }}" =~ (K8SNE-[0-9]+) ]]; then
+            ISSUE_KEY="${BASH_REMATCH[1]}"
+          fi
+          
+          # Check commit message
+          if [[ -z "$ISSUE_KEY" && "${{ github.event.head_commit.message }}" =~ (K8SNE-[0-9]+) ]]; then
+            ISSUE_KEY="${BASH_REMATCH[1]}"
+          fi
+          
+          echo "issue-key=$ISSUE_KEY" >> $GITHUB_OUTPUT
+          echo "Found Jira key: $ISSUE_KEY"
+
+      - name: Transition Issue - PR Opened
+        if: github.event_name == 'pull_request' && github.event.action == 'opened' && steps.extract-key.outputs.issue-key != ''
+        uses: atlassian/gajira-transition@v3
+        with:
+          issue: ${{ steps.extract-key.outputs.issue-key }}
+          transition: "In Review"
+          
+      - name: Transition Issue - PR Merged
+        if: github.event_name == 'pull_request' && github.event.action == 'closed' && github.event.pull_request.merged == true && steps.extract-key.outputs.issue-key != ''
+        uses: atlassian/gajira-transition@v3
+        with:
+          issue: ${{ steps.extract-key.outputs.issue-key }}
+          transition: "Done"
+
+      - name: Add Comment to Jira Issue
+        if: steps.extract-key.outputs.issue-key != ''
+        uses: atlassian/gajira-comment@v3
+        with:
+          issue: ${{ steps.extract-key.outputs.issue-key }}
+          comment: |
+            🔄 **GitHub Activity Update**
+            
+            **Event:** ${{ github.event_name }}
+            **Repository:** ${{ github.repository }}
+            **Branch:** ${{ github.head_ref || github.ref_name }}
+            ${{ github.event_name == 'pull_request' && format('**PR:** {0}', github.event.pull_request.html_url) || '' }}
+            **Commit:** ${{ github.sha }}
+            
+            ${{ github.event_name == 'push' && '📝 Code pushed to repository' || '' }}
+            ${{ github.event_name == 'pull_request' && github.event.action == 'opened' && '🔍 Pull request opened for review' || '' }}
+            ${{ github.event_name == 'pull_request' && github.event.action == 'closed' && github.event.pull_request.merged == true && '✅ Pull request merged successfully' || '' }}
+            ${{ github.event_name == 'pull_request' && github.event.action == 'closed' && github.event.pull_request.merged != true && '❌ Pull request closed without merging' || '' }}
+
+  create-deployment-issue:
+    name: Create Deployment Tracking Issue
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    steps:
+      - name: Login to Jira
+        uses: atlassian/gajira-login@v3
+        env:
+          JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
+          JIRA_USER_EMAIL: ${{ secrets.JIRA_USER_EMAIL }}
+          JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+
+      - name: Create Deployment Issue
+        uses: atlassian/gajira-create@v3
+        with:
+          project: K8SNE
+          issuetype: Task
+          summary: "Production Deployment - ${{ github.sha }}"
+          description: |
+            🚀 **Production Deployment Tracking**
+            
+            **Commit:** ${{ github.sha }}
+            **Repository:** ${{ github.repository }}
+            **Workflow Run:** ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+            **Deployed By:** ${{ github.actor }}
+            **Deployment Time:** ${{ github.event.head_commit.timestamp }}
+            
+            **Changes in this deployment:**
+            ${{ github.event.head_commit.message }}
+            
+            **Verification Steps:**
+            - [ ] Analytics CronJob deployed successfully
+            - [ ] Publisher service deployed successfully
+            - [ ] Health checks passing
+            - [ ] Database migrations completed (if any)
+            - [ ] Monitoring alerts configured
+            - [ ] Performance metrics baseline established
+            
+            **Rollback Plan:**
+            If issues are detected, rollback using:
+            ```bash
+            kubectl rollout undo deployment/publisher -n news-engine-prod
+            kubectl rollout undo cronjob/analytics-cronjob -n news-engine-prod
+            ```
+          fields: '{"labels": ["deployment", "production", "automated"], "components": [{"name": "Analytics"}, {"name": "Publisher"}]}'

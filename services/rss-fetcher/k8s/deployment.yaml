@@ -1,0 +1,53 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rss-fetcher
+  namespace: default
+  labels:
+    app: rss-fetcher
+    component: fetcher
+    part-of: news-engine
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: rss-fetcher
+  template:
+    metadata:
+      labels:
+        app: rss-fetcher
+        component: fetcher
+    spec:
+      containers:
+      - name: fetcher
+        image: rss-fetcher:latest
+        imagePullPolicy: Always
+        env:
+        - name: DATABASE_URL
+          value: "postgresql://appuser:secure-app-password-2024@postgresql.postgresql.svc.cluster.local:5432/truthdb"
+        - name: FETCH_INTERVAL
+          value: "300"  # 5 minutes
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        livenessProbe:
+          exec:
+            command:
+            - python
+            - -c
+            - "import sys; sys.exit(0)"
+          initialDelaySeconds: 30
+          periodSeconds: 60
+        readinessProbe:
+          exec:
+            command:
+            - python
+            - -c
+            - "import psycopg2; psycopg2.connect('postgresql://appuser:secure-app-password-2024@postgresql.postgresql.svc.cluster.local:5432/truthdb').close()"
+          initialDelaySeconds: 10
+          periodSeconds: 30
+      restartPolicy: Always

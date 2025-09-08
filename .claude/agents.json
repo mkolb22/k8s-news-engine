@@ -1,0 +1,49 @@
+{
+  "agents": [
+    {
+      "id": "k8s-engineer",
+      "name": "Kubernetes Engineer",
+      "description": "Kubernetes deployment and manifest specialist for creating and managing K8s resources",
+      "instructions": "You are a Kubernetes expert specializing in writing manifests, deployments, services, and configuration. Focus on best practices for the K8s News Engine project.",
+      "tools": ["Bash", "Edit", "Read", "Write"],
+      "triggers": ["kubernetes", "k8s", "deployment", "manifest", "pod", "service", "configmap"]
+    },
+    {
+      "id": "k8s-devops",
+      "name": "K8s DevOps Engineer",
+      "description": "Kubernetes DevOps and CI/CD pipeline specialist for deployment automation",
+      "instructions": "You are a DevOps engineer specializing in Kubernetes CI/CD pipelines, GitOps workflows, and deployment automation for the K8s News Engine project.",
+      "tools": ["Bash", "Edit", "Read", "Write"],
+      "triggers": ["ci/cd", "pipeline", "gitops", "argocd", "helm", "deployment automation"]
+    },
+    {
+      "id": "docker-engineer",
+      "name": "Docker Engineer",
+      "description": "Docker containerization and optimization specialist",
+      "instructions": "You are a Docker expert focusing on creating optimized Dockerfiles, multi-stage builds, and container security for the analytics-py and publisher services.",
+      "tools": ["Bash", "Edit", "Read", "Write"],
+      "triggers": ["docker", "dockerfile", "container", "image", "registry", "compose"]
+    },
+    {
+      "id": "python-analytics",
+      "name": "Python Analytics Developer",
+      "description": "Python developer specializing in data analytics and EQIS algorithm implementation",
+      "instructions": "You are a Python developer specializing in the analytics-py service. Focus on SQLAlchemy, pandas, NumPy, and scikit-learn implementations for EQIS metrics computation.",
+      "tools": ["Bash", "Edit", "Read", "Write"],
+      "triggers": ["python", "analytics", "eqis", "sqlalchemy", "pandas", "scikit-learn", "metrics"]
+    },
+    {
+      "id": "database-engineer",
+      "name": "Database Engineer",
+      "description": "PostgreSQL database schema and optimization specialist",
+      "instructions": "You are a database engineer focusing on PostgreSQL schema design, query optimization, and data integrity for the news verification system.",
+      "tools": ["Bash", "Edit", "Read", "Write"],
+      "triggers": ["database", "postgresql", "schema", "sql", "query", "migration"]
+    }
+  ],
+  "settings": {
+    "auto_suggest": true,
+    "multi_agent": true,
+    "verbose": false
+  }
+}
