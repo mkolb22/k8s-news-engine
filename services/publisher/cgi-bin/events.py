@@ -1,10 +1,15 @@
 #!/usr/bin/env python3
-import cgi, cgitb, os, sys, json
+import cgi, cgitb, os, sys, re
 import psycopg2
 from datetime import datetime, timedelta
 from collections import defaultdict
-import re
-import hashlib
+import nltk
+from nltk.corpus import stopwords
+from nltk.tokenize import word_tokenize
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
+import numpy as np
+
 cgitb.enable()
 
 def get_db_connection():
@@ -12,288 +17,204 @@ def get_db_connection():
     db_url = os.environ.get('DATABASE_URL', 'postgresql://appuser:newsengine2024@postgresql.news-engine.svc.cluster.local:5432/newsdb?sslmode=disable')
     return psycopg2.connect(db_url)
 
-def extract_keywords_from_title(title):
-    """Extract significant keywords from article title for event grouping"""
-    if not title:
-        return set()
-    
-    # Focus on title-based keywords for better event detection
-    title = title.lower()
-    words = re.findall(r'\b[a-z]{3,}\b', title)
-    
-    # Enhanced stop words list with focus on keeping important news terms
-    stop_words = {'the', 'and', 'for', 'are', 'with', 'they', 'this', 'that', 'from', 'has', 'had', 'was', 'were', 'been', 'have', 'will', 'said', 'says', 'about', 'after', 'all', 'also', 'any', 'can', 'could', 'did', 'does', 'each', 'get', 'got', 'how', 'its', 'may', 'new', 'now', 'old', 'see', 'two', 'way', 'who', 'boy', 'she', 'use', 'her', 'him', 'his', 'out', 'day', 'man', 'oil', 'sit', 'set', 'run', 'eat', 'far', 'sea', 'eye', 'ask', 'own', 'more', 'over', 'back', 'come', 'call', 'work', 'down', 'well', 'just', 'good', 'make', 'take', 'time', 'year', 'most', 'some', 'then', 'only', 'know', 'than', 'find', 'look', 'first', 'right', 'think', 'like', 'give', 'want', 'last', 'long', 'great'}
-    
-    # Keep important geographical, political, and news-worthy terms
-    important_terms = {'ukraine', 'russia', 'china', 'israel', 'gaza', 'palestinian', 'trump', 'biden', 'election', 'court', 'judge', 'military', 'police', 'attack', 'strike', 'drone', 'missile', 'war', 'peace', 'deal', 'agreement', 'treaty', 'summit', 'meeting', 'visit', 'death', 'dies', 'killed', 'injured', 'fire', 'explosion', 'crash', 'accident', 'storm', 'hurricane', 'earthquake', 'flood', 'climate', 'energy', 'oil', 'gas', 'economy', 'market', 'stock', 'price', 'inflation', 'bank', 'company', 'business', 'technology', 'tech', 'apple', 'google', 'microsoft', 'amazon', 'meta', 'tesla', 'space', 'nasa', 'mars', 'moon', 'satellite'}
-    
-    keywords = set()
-    for word in words:
-        if len(word) > 2:  # Allow 3+ character words
-            if word in important_terms or (len(word) > 4 and word not in stop_words):
-                keywords.add(word)
-    
-    return keywords
-
-def extract_summary_keywords(summary_text):
-    """Extract keywords from RSS feed summary/description for matching"""
-    if not summary_text:
-        return set()
-    
-    text = summary_text.lower()
-    # Look for sentences or key phrases
-    words = re.findall(r'\b[a-z]{4,}\b', text)  # 4+ chars for summary keywords
-    
-    stop_words = {'this', 'that', 'with', 'from', 'they', 'have', 'will', 'said', 'says', 'about', 'after', 'also', 'been', 'were', 'more', 'than', 'when', 'where', 'what', 'which', 'while', 'would', 'could', 'should', 'their', 'there', 'these', 'those', 'through'}
-    
-    keywords = set()
-    for word in words:
-        if word not in stop_words:
-            keywords.add(word)
-    
-    return keywords
-
-def group_articles_by_title_similarity(articles):
-    """Group articles by title keyword similarity to create events"""
-    groups = []
-    
-    for article in articles:
-        article_id, url, title, published_at, text, outlet = article
-        # Focus primarily on title keywords
-        title_keywords = extract_keywords_from_title(title)
-        # Use text sparingly for context
-        summary_keywords = extract_summary_keywords(text[:200] if text else "")  # First 200 chars only
-        
-        # Combined keywords with title having more weight
-        article_keywords = title_keywords.union(summary_keywords)
-        
-        # Find existing group with similar title-based keywords
-        matched_group = None
-        best_match_score = 0
-        
-        for group in groups:
-            # Calculate keyword similarity based on existing group articles
-            group_title_keywords = set()
-            group_summary_keywords = set()
-            
-            for existing_article in group['articles']:
-                existing_title = existing_article[2]
-                existing_text = existing_article[4]
-                
-                group_title_keywords.update(extract_keywords_from_title(existing_title))
-                if existing_text:
-                    group_summary_keywords.update(extract_summary_keywords(existing_text[:200]))
-            
-            # Title keyword matching is more important
-            title_matches = title_keywords.intersection(group_title_keywords)
-            summary_matches = summary_keywords.intersection(group_summary_keywords)
-            
-            # Score: title matches count double
-            match_score = len(title_matches) * 2 + len(summary_matches)
-            
-            # Require at least 2 title keyword matches OR 1 title + 2 summary matches
-            if (len(title_matches) >= 2) or (len(title_matches) >= 1 and len(summary_matches) >= 2):
-                if match_score > best_match_score:
-                    best_match_score = match_score
-                    matched_group = group
-        
-        if matched_group:
-            matched_group['articles'].append(article)
-            matched_group['outlets'].add(outlet)
-            matched_group['title_keywords'].update(title_keywords)
-            matched_group['summary_keywords'].update(summary_keywords)
-        else:
-            # Create new group
-            groups.append({
-                'articles': [article],
-                'outlets': {outlet},
-                'title_keywords': title_keywords,
-                'summary_keywords': summary_keywords,
-                'keywords': article_keywords  # Keep for backward compatibility
-            })
-    
-    # Filter groups to only those with 2+ different outlets
-    multi_source_groups = []
-    for group in groups:
-        if len(group['outlets']) >= 2:
-            multi_source_groups.append(group)
-    
-    return multi_source_groups
-
-def generate_readable_summary(group):
-    """Generate readable cross-verified summary focusing on matching details"""
-    articles = group['articles']
-    
-    # Use the most descriptive title from articles with the most keywords
-    title_scores = []
-    for article in articles:
-        title_keywords = extract_keywords_from_title(article[2])
-        common_with_group = title_keywords.intersection(group['title_keywords'])
-        title_scores.append((article[2], len(common_with_group), article))
-    
-    # Sort by keyword relevance and pick the best title
-    title_scores.sort(key=lambda x: x[1], reverse=True)
-    event_title = title_scores[0][0] if title_scores else "News Event"
-    
-    # Extract and analyze summaries/descriptions from RSS feeds
-    contributing_sources = []
-    summary_texts = []
-    common_facts = []
-    
-    for article in articles:
-        article_id, url, title, published_at, text, outlet = article
-        
-        # Use RSS description/summary (usually first 200-300 chars)
-        if text:
-            rss_summary = text[:300].strip()  # RSS summaries are typically short
-            if rss_summary:
-                summary_texts.append(rss_summary)
-                contributing_sources.append({
-                    'outlet': outlet,
-                    'url': url,
-                    'title': title,
-                    'summary': rss_summary
-                })
-    
-    # Find common themes and facts across summaries
-    if len(summary_texts) >= 2:
-        # Simple approach: find sentences/phrases that appear in multiple summaries
-        all_words = []
-        for text in summary_texts:
-            words = re.findall(r'\b[a-zA-Z]{4,}\b', text.lower())
-            all_words.extend(words)
-        
-        # Count word frequency across summaries
-        word_count = {}
-        for word in all_words:
-            word_count[word] = word_count.get(word, 0) + 1
-        
-        # Get most common significant words mentioned in multiple sources
-        common_words = [word for word, count in word_count.items() if count >= 2]
-        
-        # Build readable summary focusing on verified facts
-        verified_facts = []
-        
-        # Look for key patterns and common information
-        for text in summary_texts:
-            sentences = re.split(r'[.!?]+', text)
-            for sentence in sentences:
-                sentence = sentence.strip()
-                if len(sentence) > 30:  # Substantial sentences
-                    # Check if sentence contains common keywords
-                    sentence_words = set(re.findall(r'\b[a-zA-Z]{4,}\b', sentence.lower()))
-                    if len(sentence_words.intersection(set(common_words))) >= 2:
-                        verified_facts.append(sentence)
-        
-        # Remove duplicates and create coherent summary
-        unique_facts = list(set(verified_facts))
-        
-        if unique_facts:
-            # Take the most informative facts, limit to 3 sentences for readability
-            selected_facts = unique_facts[:3]
-            summary = ". ".join(selected_facts)
-            if not summary.endswith('.'):
-                summary += "."
-        else:
-            # Fallback: create summary from most common themes
-            theme_words = [word for word, count in sorted(word_count.items(), key=lambda x: x[1], reverse=True)][:10]
-            summary = f"Multiple sources report developments involving {', '.join(theme_words[:5])}. "
-            summary += f"This story has been verified across {len(contributing_sources)} different news outlets."
-    else:
-        summary = f"Single source reporting: {event_title}"
-    
-    # Ensure readability: proper capitalization and flow
-    summary = improve_summary_readability(summary)
-    
-    # Limit to 500 words while maintaining readability
-    words = summary.split()
-    if len(words) > 500:
-        # Cut at sentence boundary near 500 words
-        truncated = " ".join(words[:500])
-        last_period = truncated.rfind('.')
-        if last_period > 400:  # Keep if we're close to full length
-            summary = truncated[:last_period + 1]
-        else:
-            summary = truncated + "..."
-    
-    return {
-        'title': event_title,
-        'summary': summary,
-        'sources': contributing_sources,  # Only sources that contributed to the summary
-        'outlet_count': len(group['outlets']),
-        'verified_facts_count': len(contributing_sources)
-    }
-
-def improve_summary_readability(text):
-    """Improve summary readability with proper formatting and flow"""
+def clean_text(text):
+    """Clean and normalize text for comparison"""
     if not text:
-        return text
-    
-    # Ensure proper sentence capitalization
-    sentences = re.split(r'([.!?]+)', text)
-    improved_sentences = []
-    
-    for i, part in enumerate(sentences):
-        if i % 2 == 0 and part.strip():  # Sentence content (not punctuation)
-            # Capitalize first letter and clean up
-            part = part.strip()
-            if part:
-                part = part[0].upper() + part[1:] if len(part) > 1 else part.upper()
-                improved_sentences.append(part)
-        elif part.strip():  # Punctuation
-            improved_sentences.append(part)
-    
-    # Join and clean up spacing
-    result = ''.join(improved_sentences)
-    result = re.sub(r'\s+', ' ', result)  # Remove extra spaces
-    result = re.sub(r'\s+([.!?])', r'\1', result)  # Fix spacing before punctuation
-    
-    return result.strip()
+        return ""
+    # Remove URLs, image references, metadata
+    text = re.sub(r'https?://\S+', '', text)
+    text = re.sub(r'Image:.*?(?=\n|$)', '', text, flags=re.MULTILINE)
+    text = re.sub(r'\[.*?\]', '', text)  # Remove bracketed metadata
+    text = re.sub(r'Photo:.*?(?=\n|$)', '', text, flags=re.MULTILINE)
+    text = re.sub(r'Getty Images.*?(?=\n|$)', '', text, flags=re.MULTILINE)
+    text = re.sub(r'Reuters.*?(?=\n|$)', '', text, flags=re.MULTILINE)
+    text = re.sub(r'AP Photo.*?(?=\n|$)', '', text, flags=re.MULTILINE)
+    text = re.sub(r'\s+', ' ', text).strip()
+    return text
 
-def calculate_eqis_score(group):
-    """Calculate simplified EQIS score based on coverage and recency"""
-    articles = group['articles']
+def extract_keywords(title):
+    """Extract meaningful keywords from article title"""
+    try:
+        # Initialize NLTK components (fallback if not available)
+        try:
+            stop_words = set(stopwords.words('english'))
+        except:
+            stop_words = {'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'is', 'are', 'was', 'were'}
+        
+        # Clean and tokenize title
+        title_clean = re.sub(r'[^\w\s]', ' ', title.lower())
+        words = title_clean.split()
+        
+        # Filter meaningful keywords
+        keywords = [word for word in words 
+                   if len(word) > 2 and 
+                   word not in stop_words and 
+                   not word.isdigit()]
+        
+        return keywords[:8]  # Limit to top 8 keywords
+    except Exception:
+        # Fallback simple extraction
+        words = re.findall(r'\b[A-Za-z]{3,}\b', title.lower())
+        common_words = {'the', 'and', 'for', 'are', 'but', 'not', 'you', 'all', 'can', 'had', 'her', 'was', 'one', 'our', 'out', 'day', 'get', 'has', 'him', 'his', 'how', 'man', 'new', 'now', 'old', 'see', 'two', 'who', 'boy', 'did', 'its', 'let', 'put', 'say', 'she', 'too', 'use'}
+        return [w for w in words if w not in common_words][:8]
+
+def calculate_title_similarity(title1, title2):
+    """Calculate similarity between two titles using keyword overlap"""
+    keywords1 = set(extract_keywords(title1))
+    keywords2 = set(extract_keywords(title2))
     
-    # Coverage score (number of different outlets)
-    coverage_score = min(len(group['outlets']) / 5.0, 1.0)  # Max at 5 outlets
+    if not keywords1 or not keywords2:
+        return 0.0
     
-    # Recency score (how recent are the articles)
-    now = datetime.now()
-    recency_scores = []
+    intersection = keywords1.intersection(keywords2)
+    union = keywords1.union(keywords2)
     
-    for article in articles:
-        published_at = article[3]
-        if published_at:
-            if isinstance(published_at, str):
-                # Handle string dates
+    # Jaccard similarity
+    return len(intersection) / len(union) if union else 0.0
+
+def calculate_content_similarity(text1, text2):
+    """Calculate similarity between article content using TF-IDF"""
+    try:
+        if not text1 or not text2:
+            return 0.0
+        
+        # Clean texts
+        clean_text1 = clean_text(text1)
+        clean_text2 = clean_text(text2)
+        
+        if len(clean_text1) < 50 or len(clean_text2) < 50:
+            return 0.0
+        
+        # Use TF-IDF vectorizer
+        vectorizer = TfidfVectorizer(
+            max_features=1000,
+            stop_words='english',
+            ngram_range=(1, 2),
+            min_df=1
+        )
+        
+        try:
+            tfidf_matrix = vectorizer.fit_transform([clean_text1, clean_text2])
+            similarity = cosine_similarity(tfidf_matrix[0:1], tfidf_matrix[1:2])[0][0]
+            return similarity
+        except:
+            # Fallback to simple word overlap
+            words1 = set(clean_text1.lower().split())
+            words2 = set(clean_text2.lower().split())
+            intersection = words1.intersection(words2)
+            union = words1.union(words2)
+            return len(intersection) / len(union) if union else 0.0
+            
+    except Exception:
+        return 0.0
+
+def group_articles_into_events(articles):
+    """Group related articles into events using similarity matching"""
+    events = []
+    used_articles = set()
+    
+    for i, article1 in enumerate(articles):
+        if i in used_articles:
+            continue
+            
+        # Start a new event with this article
+        event_articles = [article1]
+        used_articles.add(i)
+        
+        # Find similar articles
+        for j, article2 in enumerate(articles):
+            if j <= i or j in used_articles:
                 continue
-            days_old = (now - published_at.replace(tzinfo=None)).days
-            recency_score = max(0, 1.0 - (days_old / 7.0))  # Decay over a week
-            recency_scores.append(recency_score)
+                
+            # Calculate similarities
+            title_sim = calculate_title_similarity(article1[2], article2[2])  # title
+            content_sim = calculate_content_similarity(article1[5], article2[5])  # text
+            
+            # Thresholds for grouping
+            if title_sim > 0.3 or content_sim > 0.6:
+                event_articles.append(article2)
+                used_articles.add(j)
+        
+        if len(event_articles) >= 1:  # Include single articles as events
+            events.append(event_articles)
     
-    avg_recency = sum(recency_scores) / len(recency_scores) if recency_scores else 0.5
+    return events
+
+def generate_event_summary(event_articles):
+    """Generate a cleaned summary for an event from multiple articles"""
+    if not event_articles:
+        return ""
     
-    # Coherence score (simplified - based on title similarity)
-    coherence_score = 0.7  # Default moderate coherence
+    # Get the longest, most detailed article
+    best_article = max(event_articles, key=lambda x: len(x[5]) if x[5] else 0)
     
-    # Combine scores using EQIS weights
-    weights = {
-        'coverage': 0.4,
-        'recency': 0.3, 
-        'coherence': 0.3
+    summary = clean_text(best_article[5])
+    
+    # Limit length and clean up
+    sentences = summary.split('. ')
+    if len(sentences) > 3:
+        summary = '. '.join(sentences[:3]) + '.'
+    
+    # Ensure reasonable length
+    if len(summary) > 500:
+        summary = summary[:497] + '...'
+    
+    return summary
+
+def calculate_eqis_score(event_articles):
+    """Calculate Event Quality & Impact Score (EQIS) for an event"""
+    if not event_articles:
+        return 0.0
+    
+    # Coverage Score (0-30): Number of independent outlets
+    outlets = set(article[3] for article in event_articles)  # outlet
+    coverage_score = min(len(outlets) * 6, 30)
+    
+    # Coherence Score (0-25): Average content similarity
+    if len(event_articles) > 1:
+        similarities = []
+        for i in range(len(event_articles)):
+            for j in range(i+1, len(event_articles)):
+                sim = calculate_content_similarity(event_articles[i][5], event_articles[j][5])
+                similarities.append(sim)
+        coherence_score = (sum(similarities) / len(similarities)) * 25 if similarities else 15
+    else:
+        coherence_score = 15  # Default for single article
+    
+    # Recency Score (0-20): Based on publication time
+    now = datetime.now()
+    if event_articles[0][4]:  # published_at
+        hours_ago = (now - event_articles[0][4]).total_seconds() / 3600
+        if hours_ago <= 2:
+            recency_score = 20
+        elif hours_ago <= 12:
+            recency_score = 15
+        elif hours_ago <= 24:
+            recency_score = 10
+        else:
+            recency_score = 5
+    else:
+        recency_score = 10
+    
+    # Authority Score (0-15): Based on outlet reputation
+    authority_outlets = {
+        'BBC News', 'BBC World', 'Reuters', 'Associated Press', 'AP News',
+        'The Guardian', 'The New York Times', 'The Washington Post', 'CNN',
+        'Al Jazeera', 'Deutsche Welle'
     }
     
-    eqis = (coverage_score * weights['coverage'] + 
-            avg_recency * weights['recency'] + 
-            coherence_score * weights['coherence'])
+    has_authority = any(article[3] in authority_outlets for article in event_articles)
+    authority_score = 15 if has_authority else 8
     
-    return round(eqis * 100, 1)  # Return as percentage
+    # Diversity Score (0-10): Outlet diversity
+    diversity_score = min(len(outlets) * 2, 10)
+    
+    total_score = coverage_score + coherence_score + recency_score + authority_score + diversity_score
+    return min(total_score, 100)
 
 def format_datetime(dt):
     """Format datetime for display"""
     if dt:
-        if isinstance(dt, str):
-            return dt
         return dt.strftime('%Y-%m-%d %H:%M')
     return 'N/A'
 
@@ -304,36 +225,36 @@ def main():
         conn = get_db_connection()
         cur = conn.cursor()
         
-        # Get recent articles from the last 7 days
+        # Get recent articles
         cur.execute("""
-            SELECT id, url, title, published_at, text, outlet
+            SELECT id, url, title, outlet, published_at, text, raw_html
             FROM articles 
-            WHERE published_at > NOW() - INTERVAL '7 days'
+            WHERE published_at > NOW() - INTERVAL '24 hours'
             ORDER BY published_at DESC 
-            LIMIT 100
+            LIMIT 200
         """)
         articles = cur.fetchall()
         
-        # Group articles into events based on title similarity
-        event_groups = group_articles_by_title_similarity(articles)
+        # Get total counts
+        cur.execute("SELECT COUNT(*) FROM events")
+        event_count = cur.fetchone()[0]
         
-        # Generate readable summaries and scores
-        events = []
-        for group in event_groups[:10]:  # Show top 10 events
-            summary_data = generate_readable_summary(group)
-            eqis_score = calculate_eqis_score(group)
-            
-            events.append({
-                'summary': summary_data,
-                'eqis_score': eqis_score,
-                'article_count': len(group['articles'])
-            })
-        
-        # Sort events by EQIS score
-        events.sort(key=lambda x: x['eqis_score'], reverse=True)
+        cur.execute("SELECT COUNT(*) FROM articles")
+        article_count = cur.fetchone()[0]
         
         cur.close()
         conn.close()
+        
+        # Group articles into events
+        events = group_articles_into_events(articles)
+        
+        # Sort events by EQIS score
+        events_with_scores = []
+        for event_articles in events:
+            eqis_score = calculate_eqis_score(event_articles)
+            events_with_scores.append((eqis_score, event_articles))
+        
+        events_with_scores.sort(key=lambda x: x[0], reverse=True)
         
         print(f"""<!DOCTYPE html>
 <html>
@@ -348,20 +269,20 @@ def main():
         .stat-card h3 {{ margin: 0 0 10px 0; color: #2c3e50; }}
         .stat-card .number {{ font-size: 2em; font-weight: bold; color: #3498db; }}
         .events {{ background: white; padding: 20px; border-radius: 5px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }}
-        .event {{ border-bottom: 2px solid #eee; padding: 20px 0; margin-bottom: 20px; }}
+        .event {{ border-bottom: 2px solid #ecf0f1; padding: 20px 0; margin-bottom: 20px; }}
         .event:last-child {{ border-bottom: none; }}
-        .event-title {{ font-size: 1.3em; font-weight: bold; color: #2c3e50; margin-bottom: 15px; }}
+        .event-title {{ font-size: 1.3em; font-weight: bold; color: #2c3e50; margin-bottom: 10px; }}
         .event-summary {{ color: #34495e; margin-bottom: 15px; line-height: 1.6; }}
-        .event-sources {{ margin-bottom: 10px; }}
-        .source-link {{ display: inline-block; margin: 5px 10px 5px 0; }}
-        .source-link a {{ color: #3498db; text-decoration: none; font-weight: bold; }}
-        .source-link a:hover {{ text-decoration: underline; }}
-        .eqis-score {{ font-weight: bold; padding: 8px 12px; border-radius: 4px; display: inline-block; }}
-        .eqis-high {{ background: #27ae60; color: white; }}
-        .eqis-medium {{ background: #f39c12; color: white; }}
-        .eqis-low {{ background: #e74c3c; color: white; }}
-        .event-meta {{ font-size: 0.9em; color: #7f8c8d; margin-bottom: 10px; }}
-        .no-data {{ text-align: center; color: #7f8c8d; padding: 40px; }}
+        .event-articles {{ margin-bottom: 10px; }}
+        .event-articles h4 {{ color: #7f8c8d; font-size: 0.9em; margin-bottom: 8px; }}
+        .article-link {{ display: block; color: #3498db; text-decoration: none; margin-bottom: 3px; font-size: 0.9em; }}
+        .article-link:hover {{ text-decoration: underline; }}
+        .eqis-score {{ display: inline-block; background: linear-gradient(45deg, #3498db, #2980b9); color: white; padding: 8px 15px; border-radius: 20px; font-weight: bold; font-size: 0.9em; }}
+        .score-excellent {{ background: linear-gradient(45deg, #27ae60, #229954) !important; }}
+        .score-good {{ background: linear-gradient(45deg, #f39c12, #e67e22) !important; }}
+        .score-fair {{ background: linear-gradient(45deg, #e74c3c, #c0392b) !important; }}
+        .meta-info {{ color: #7f8c8d; font-size: 0.8em; margin-top: 10px; }}
+        .no-events {{ text-align: center; color: #7f8c8d; padding: 40px; }}
         a {{ color: #3498db; text-decoration: none; }}
         a:hover {{ text-decoration: underline; }}
     </style>
@@ -369,68 +290,77 @@ def main():
 <body>
     <div class="header">
         <h1>K8s News Engine - Event Analysis</h1>
-        <p>Cross-verified news events with EQIS scoring</p>
+        <p>AI-powered event detection and truth analysis with EQIS scoring</p>
+        <div style="margin-top: 15px;">
+            <a href="/cgi-bin/index.py" style="color: #ecf0f1; margin-right: 20px; text-decoration: none;">📰 All Articles</a>
+            <a href="/cgi-bin/events.py" style="color: #ecf0f1; text-decoration: none;">🎯 Event Analysis</a>
+        </div>
     </div>
     
     <div class="stats">
         <div class="stat-card">
-            <h3>Events Found</h3>
+            <h3>Detected Events</h3>
             <div class="number">{len(events)}</div>
         </div>
         <div class="stat-card">
-            <h3>Total Articles</h3>
+            <h3>Source Articles</h3>
             <div class="number">{len(articles)}</div>
         </div>
         <div class="stat-card">
-            <h3>Multi-Source Events</h3>
-            <div class="number">{len(event_groups)}</div>
+            <h3>Coverage Period</h3>
+            <div style="color: #27ae60; font-weight: bold;">24 Hours</div>
         </div>
     </div>
     
     <div class="events">
-        <h2>Cross-Verified News Events</h2>""")
+        <h2>Recent Events by EQIS Score</h2>""")
         
-        if events:
-            for event in events:
-                summary = event['summary']
-                eqis_score = event['eqis_score']
+        if events_with_scores:
+            for eqis_score, event_articles in events_with_scores[:20]:  # Top 20 events
+                # Get representative title (most common keywords)
+                titles = [article[2] for article in event_articles]
+                representative_title = max(titles, key=len)
                 
-                # Determine EQIS score class
-                if eqis_score >= 70:
-                    score_class = "eqis-high"
-                elif eqis_score >= 40:
-                    score_class = "eqis-medium"
-                else:
-                    score_class = "eqis-low"
+                # Generate summary
+                summary = generate_event_summary(event_articles)
+                
+                # Determine score class
+                score_class = "score-excellent" if eqis_score >= 80 else "score-good" if eqis_score >= 60 else "score-fair"
                 
                 print(f"""
         <div class="event">
-            <div class="event-title">{summary['title']}</div>
-            <div class="event-meta">Verified by {summary['outlet_count']} sources • {event['article_count']} articles</div>
-            <div class="event-summary">{summary['summary']}</div>
-            <div class="event-sources">
-                <strong>Sources:</strong> """)
+            <div class="event-title">{representative_title}</div>
+            <div class="event-summary">{summary}</div>
+            <div class="event-articles">
+                <h4>Source Articles ({len(event_articles)}):</h4>""")
                 
-                for source in summary['sources']:
-                    print(f"""<span class="source-link"><a href="{source['url']}" target="_blank">{source['outlet']}</a></span>""")
+                for article in event_articles:
+                    outlet = article[3] if article[3] else 'Unknown Source'
+                    url = article[1] if article[1] else '#'
+                    title = article[2] if article[2] else 'No title'
+                    print(f'                <a href="{url}" target="_blank" class="article-link">• {outlet}: {title[:80]}{"..." if len(title) > 80 else ""}</a>')
                 
                 print(f"""
             </div>
-            <div class="eqis-score {score_class}">EQIS Score: {eqis_score}%</div>
+            <div class="meta-info">
+                <span class="eqis-score {score_class}">EQIS Score: {eqis_score:.1f}/100</span>
+                <span style="margin-left: 15px;">Coverage: {len(set(article[3] for article in event_articles))} outlets</span>
+                <span style="margin-left: 15px;">Latest: {format_datetime(max(article[4] for article in event_articles if article[4]))}</span>
+            </div>
         </div>""")
         else:
             print("""
-        <div class="no-data">
-            <h3>No cross-verified events found</h3>
-            <p>Events require articles from 2+ different sources on the same topic.</p>
+        <div class="no-events">
+            <h3>No events detected in the last 24 hours</h3>
+            <p>The system will analyze articles and group them into events as they are collected.</p>
         </div>""")
         
         print("""
     </div>
     
     <div style="margin-top: 30px; text-align: center; color: #7f8c8d; font-size: 0.9em;">
-        <p>Event Quality & Impact Score (EQIS) based on coverage, recency, and coherence</p>
-        <p>K8s News Engine • Powered by Alpine Linux & Kubernetes</p>
+        <p>Event Quality & Impact Score (EQIS) combines coverage, coherence, recency, authority, and diversity metrics</p>
+        <p>K8s News Engine • Powered by AI Event Detection</p>
     </div>
 </body>
 </html>""")
@@ -439,7 +369,7 @@ def main():
         print(f"""<!DOCTYPE html>
 <html>
 <head>
-    <title>K8s News Engine - Error</title>
+    <title>K8s News Engine - Event Analysis Error</title>
     <style>
         body {{ font-family: Arial, sans-serif; margin: 20px; background: #f5f5f5; }}
         .error {{ background: #e74c3c; color: white; padding: 20px; border-radius: 5px; }}
@@ -448,8 +378,9 @@ def main():
 <body>
     <div class="error">
         <h1>Event Analysis Error</h1>
-        <p>Could not analyze events from the database.</p>
+        <p>Could not process event analysis. The system may still be starting up.</p>
         <p>Error: {str(e)}</p>
+        <p><a href="/cgi-bin/index.py" style="color: #ecf0f1;">← Back to Articles</a></p>
     </div>
 </body>
 </html>""")

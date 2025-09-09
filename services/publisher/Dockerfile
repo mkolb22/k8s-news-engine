@@ -10,8 +10,20 @@ RUN apk add --no-cache \
     python3-dev \
     musl-dev
 
-# Install psycopg2 using Alpine package manager
-RUN apk add --no-cache py3-psycopg2
+# Install psycopg2 and ML dependencies using Alpine package manager
+RUN apk add --no-cache \
+    py3-psycopg2 \
+    py3-numpy \
+    py3-scipy \
+    py3-scikit-learn \
+    py3-nltk
+
+# Install additional Python packages via pip for missing dependencies
+RUN pip3 install --break-system-packages --no-cache-dir \
+    nltk==3.8.1
+
+# Download NLTK data
+RUN python3 -c "import nltk; nltk.download('punkt'); nltk.download('stopwords')" || true
 
 # Create directories
 RUN mkdir -p /var/www/htdocs \
