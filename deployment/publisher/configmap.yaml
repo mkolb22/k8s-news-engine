@@ -1,0 +1,48 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: publisher-config
+  namespace: news-engine
+  labels:
+    app: publisher
+    component: webserver
+    part-of: news-engine
+data:
+  lighttpd.conf: |
+    server.document-root  = "/var/www/htdocs"
+    server.port           = 8080
+    server.username       = "nobody"
+    server.groupname      = "nogroup"
+    server.modules        = ("mod_accesslog", "mod_cgi", "mod_setenv", "mod_alias")
+
+    # Security headers
+    setenv.add-response-header = (
+      "X-Content-Type-Options" => "nosniff",
+      "X-Frame-Options" => "SAMEORIGIN",
+      "Access-Control-Allow-Origin" => "*",
+      "Access-Control-Allow-Methods" => "GET, POST, OPTIONS"
+    )
+
+    # Logging
+    accesslog.filename    = "/var/log/lighttpd/access.log"
+
+    # CGI configuration
+    cgi.assign = ( ".py" => "/usr/bin/python3" )
+    
+    # URL aliases
+    alias.url += ( "/cgi-bin/" => "/var/www/cgi-bin/" )
+
+    # Request limits
+    server.max-request-size = 2M
+    
+    # Default index files
+    index-file.names = ( "index.html", "index.py" )
+    
+    # MIME types
+    mimetype.assign = (
+      ".html" => "text/html",
+      ".css"  => "text/css",
+      ".js"   => "text/javascript",
+      ".json" => "application/json",
+      ".txt"  => "text/plain"
+    )

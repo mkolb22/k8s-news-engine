@@ -1,0 +1,91 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: rss-feeds-config
+  namespace: news-engine
+  labels:
+    app: rss-fetcher
+    component: config
+    part-of: news-engine
+data:
+  feeds.yaml: |
+    # RSS Feed Configuration
+    # Each feed has: url, outlet name, and fetch interval (minutes)
+    # All feeds are from non-subscription public news sources
+    feeds:
+      - url: "https://feeds.bbci.co.uk/news/world/rss.xml"
+        outlet: "BBC World"
+        interval: 15
+        category: "news"
+        
+      - url: "https://rss.cnn.com/rss/cnn_topstories.rss"
+        outlet: "CNN Top Stories"
+        interval: 15
+        category: "news"
+        
+      - url: "https://feeds.reuters.com/reuters/topNews"
+        outlet: "Reuters Top News"
+        interval: 10
+        category: "news"
+        
+      - url: "https://www.theguardian.com/world/rss"
+        outlet: "The Guardian World"
+        interval: 20
+        category: "news"
+        
+      - url: "https://www.aljazeera.com/xml/rss/all.xml"
+        outlet: "Al Jazeera"
+        interval: 20
+        category: "news"
+        
+      - url: "https://feeds.npr.org/1001/rss.xml"
+        outlet: "NPR News"
+        interval: 30
+        category: "news"
+        
+      - url: "https://www.politico.com/rss/politicopicks.xml"
+        outlet: "Politico"
+        interval: 15
+        category: "news"
+        
+      - url: "https://feeds.skynews.com/feeds/rss/world.xml"
+        outlet: "Sky News World"
+        interval: 20
+        category: "news"
+        
+      - url: "https://abcnews.go.com/abcnews/topstories"
+        outlet: "ABC News"
+        interval: 20
+        category: "news"
+        
+      - url: "https://www.nbcnews.com/feeds/rss/topstories"
+        outlet: "NBC News"
+        interval: 20
+        category: "news"
+        
+      - url: "https://feeds.cbsnews.com/CBSNewsMain"
+        outlet: "CBS News"
+        interval: 20
+        category: "news"
+        
+      - url: "https://www.voanews.com/api/zq$omekvi_"
+        outlet: "VOA News"
+        interval: 30
+        category: "news"
+        
+      - url: "https://www.democracynow.org/democracynow.rss"
+        outlet: "Democracy Now"
+        interval: 30
+        category: "news"
+        
+      - url: "https://www.pbs.org/newshour/feeds/rss/headlines"
+        outlet: "PBS NewsHour"
+        interval: 30
+        category: "news"
+
+    # Default settings for all feeds
+    defaults:
+      interval: 30
+      timeout: 30
+      retries: 3
+      user_agent: "K8s-News-Engine/1.0"

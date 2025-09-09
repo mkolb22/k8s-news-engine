@@ -9,7 +9,7 @@ from sqlalchemy import create_engine, text
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
-DB_URL = os.getenv("DATABASE_URL", "postgresql+psycopg2://truth:truth@db:5432/truthdb")
+DB_URL = os.getenv("DATABASE_URL", "postgresql+psycopg2://appuser:newsengine2024@postgresql.news-engine.svc.cluster.local:5432/newsdb")
 
 def load_config():
     with open("configs/metrics.yml", "r", encoding="utf-8") as f:

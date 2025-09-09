@@ -2,7 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: rss-fetcher
-  namespace: default
+  namespace: news-engine
   labels:
     app: rss-fetcher
     component: fetcher
@@ -20,34 +20,61 @@ spec:
     spec:
       containers:
       - name: fetcher
-        image: rss-fetcher:latest
+        image: k8s-news-engine/rss-fetcher:latest
         imagePullPolicy: Always
         env:
         - name: DATABASE_URL
           value: "postgresql://appuser:secure-app-password-2024@postgresql.postgresql.svc.cluster.local:5432/truthdb"
         - name: FETCH_INTERVAL
           value: "300"  # 5 minutes
+        - name: TZ
+          value: "UTC"
+        - name: FEEDS_CONFIG_PATH
+          value: "/config/feeds.yaml"
+        volumeMounts:
+        - name: feeds-config
+          mountPath: /config
+          readOnly: true
         resources:
           requests:
-            memory: "256Mi"
-            cpu: "100m"
+            memory: "64Mi"    # Reduced for Go binary
+            cpu: "50m"        # Reduced for Go efficiency
           limits:
-            memory: "512Mi"
-            cpu: "500m"
+            memory: "128Mi"   # Reduced for Go binary
+            cpu: "200m"       # Reduced for Go efficiency
         livenessProbe:
           exec:
             command:
-            - python
+            - /bin/sh
             - -c
-            - "import sys; sys.exit(0)"
+            - "pgrep -f rss-fetcher"
           initialDelaySeconds: 30
           periodSeconds: 60
+          timeoutSeconds: 10
+          failureThreshold: 3
         readinessProbe:
           exec:
             command:
-            - python
+            - /bin/sh
             - -c
-            - "import psycopg2; psycopg2.connect('postgresql://appuser:secure-app-password-2024@postgresql.postgresql.svc.cluster.local:5432/truthdb').close()"
-          initialDelaySeconds: 10
+            - "pgrep -f rss-fetcher"
+          initialDelaySeconds: 5
           periodSeconds: 30
+          timeoutSeconds: 5
+          failureThreshold: 3
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          runAsUser: 1000
+          capabilities:
+            drop:
+            - ALL
+      volumes:
+      - name: feeds-config
+        configMap:
+          name: rss-feeds-config
+          items:
+          - key: feeds.yaml
+            path: feeds.yaml
       restartPolicy: Always

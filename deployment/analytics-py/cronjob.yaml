@@ -1,0 +1,46 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: analytics-worker
+  namespace: news-engine
+  labels:
+    app: analytics-worker
+    component: analytics
+    part-of: news-engine
+spec:
+  schedule: "*/15 * * * *"   # every 15 minutes
+  concurrencyPolicy: Forbid  # Don't run concurrent jobs
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      activeDeadlineSeconds: 600  # 10 minute timeout
+      template:
+        metadata:
+          labels:
+            app: analytics-worker
+            component: analytics
+        spec:
+          restartPolicy: OnFailure
+          containers:
+          - name: analytics
+            image: k8s-news-engine/analytics-py:latest
+            imagePullPolicy: IfNotPresent
+            env:
+            - name: DATABASE_URL
+              value: "postgresql+psycopg2://appuser:newsengine2024@postgresql.news-engine.svc.cluster.local:5432/newsdb"
+            resources:
+              requests:
+                memory: "256Mi"
+                cpu: "100m"
+              limits:
+                memory: "512Mi"
+                cpu: "500m"
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: false  # Needs write access for sklearn temp files
+              runAsNonRoot: true
+              runAsUser: 1000
+              capabilities:
+                drop:
+                - ALL

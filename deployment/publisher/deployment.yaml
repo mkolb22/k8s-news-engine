@@ -1,0 +1,81 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: publisher
+  namespace: news-engine
+  labels:
+    app: publisher
+    component: webserver
+    part-of: news-engine
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: publisher
+  template:
+    metadata:
+      labels:
+        app: publisher
+        component: webserver
+    spec:
+      containers:
+      - name: publisher
+        image: k8s-news-engine/publisher:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8080
+          name: http
+        env:
+        - name: DATABASE_URL
+          value: "postgresql://appuser:newsengine2024@postgresql.news-engine.svc.cluster.local:5432/newsdb"
+        volumeMounts:
+        - name: lighttpd-config
+          mountPath: /etc/lighttpd
+          readOnly: true
+        - name: web-content
+          mountPath: /var/www/htdocs
+        - name: logs
+          mountPath: /var/log/lighttpd
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "50m"
+          limits:
+            memory: "128Mi"
+            cpu: "200m"
+        livenessProbe:
+          httpGet:
+            path: /cgi-bin/index.py
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /cgi-bin/index.py
+            port: 8080
+          initialDelaySeconds: 15
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: false  # lighttpd needs write access to logs
+          runAsNonRoot: true
+          runAsUser: 1000
+          capabilities:
+            drop:
+            - ALL
+      volumes:
+      - name: lighttpd-config
+        configMap:
+          name: publisher-config
+          items:
+          - key: lighttpd.conf
+            path: lighttpd.conf
+      - name: web-content
+        emptyDir: {}
+      - name: logs
+        emptyDir: {}
+      restartPolicy: Always

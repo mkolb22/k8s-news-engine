@@ -1,0 +1,80 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rss-fetcher
+  namespace: news-engine
+  labels:
+    app: rss-fetcher
+    component: fetcher
+    part-of: news-engine
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: rss-fetcher
+  template:
+    metadata:
+      labels:
+        app: rss-fetcher
+        component: fetcher
+    spec:
+      containers:
+      - name: fetcher
+        image: k8s-news-engine/rss-fetcher:latest
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: DATABASE_URL
+          value: "postgresql://appuser:newsengine2024@postgresql.news-engine.svc.cluster.local:5432/newsdb?sslmode=disable"
+        - name: FETCH_INTERVAL
+          value: "300"  # 5 minutes
+        - name: TZ
+          value: "UTC"
+        - name: FEEDS_CONFIG_PATH
+          value: "/config/feeds.yaml"
+        volumeMounts:
+        - name: feeds-config
+          mountPath: /config
+          readOnly: true
+        resources:
+          requests:
+            memory: "64Mi"    # Reduced for Go binary
+            cpu: "50m"        # Reduced for Go efficiency
+          limits:
+            memory: "128Mi"   # Reduced for Go binary
+            cpu: "200m"       # Reduced for Go efficiency
+        livenessProbe:
+          exec:
+            command:
+            - /bin/sh
+            - -c
+            - "pgrep -f rss-fetcher"
+          initialDelaySeconds: 30
+          periodSeconds: 60
+          timeoutSeconds: 10
+          failureThreshold: 3
+        readinessProbe:
+          exec:
+            command:
+            - /bin/sh
+            - -c
+            - "pgrep -f rss-fetcher"
+          initialDelaySeconds: 5
+          periodSeconds: 30
+          timeoutSeconds: 5
+          failureThreshold: 3
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          runAsUser: 1000
+          capabilities:
+            drop:
+            - ALL
+      volumes:
+      - name: feeds-config
+        configMap:
+          name: rss-feeds-config
+          items:
+          - key: feeds.yaml
+            path: feeds.yaml
+      restartPolicy: Always
