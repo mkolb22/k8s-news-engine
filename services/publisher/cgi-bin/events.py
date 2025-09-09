@@ -17,19 +17,61 @@ def get_db_connection():
     db_url = os.environ.get('DATABASE_URL', 'postgresql://appuser:newsengine2024@postgresql.news-engine.svc.cluster.local:5432/newsdb?sslmode=disable')
     return psycopg2.connect(db_url)
 
-def clean_text(text):
-    """Clean and normalize text for comparison"""
+def clean_text(text, aggressive=True):
+    """Aggressively clean text removing ALL metadata and non-content"""
     if not text:
         return ""
-    # Remove URLs, image references, metadata
+    
+    # Remove everything before the first real sentence
+    # Look for pattern like "Location/Source - "
+    text = re.sub(r'^[^.!?]*?[A-Z]{2,}[^.!?]*?[-–—]\s*', '', text, flags=re.MULTILINE)
+    
+    # Remove URLs and web references
     text = re.sub(r'https?://\S+', '', text)
-    text = re.sub(r'Image:.*?(?=\n|$)', '', text, flags=re.MULTILINE)
-    text = re.sub(r'\[.*?\]', '', text)  # Remove bracketed metadata
-    text = re.sub(r'Photo:.*?(?=\n|$)', '', text, flags=re.MULTILINE)
-    text = re.sub(r'Getty Images.*?(?=\n|$)', '', text, flags=re.MULTILINE)
-    text = re.sub(r'Reuters.*?(?=\n|$)', '', text, flags=re.MULTILINE)
-    text = re.sub(r'AP Photo.*?(?=\n|$)', '', text, flags=re.MULTILINE)
+    text = re.sub(r'www\.\S+', '', text)
+    text = re.sub(r'/[a-zA-Z0-9_\-./]+', '', text)  # Remove paths
+    
+    # Remove ALL image/photo/media references and captions
+    text = re.sub(r'(?:Image|Photo|Picture|Photograph|Video|WATCH|Getty|Reuters|AP|AFP|EPA|BBC|CNN)[^.]*?\.', '', text, flags=re.IGNORECASE)
+    text = re.sub(r'\[.*?\]', '', text)  # Remove ALL bracketed content
+    text = re.sub(r'\(.*?\)', '', text)  # Remove parenthetical metadata
+    
+    # Remove dates, times, and bylines
+    text = re.sub(r'\b(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)[^.]*?(?=[A-Z])', '', text)
+    text = re.sub(r'\b(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2}[^.]*?(?=[A-Z])', '', text)
+    text = re.sub(r'\d{1,2}:\d{2}\s*(?:AM|PM|am|pm)?[^.]*?(?=[A-Z])', '', text)
+    text = re.sub(r'\d{4}-\d{2}-\d{2}', '', text)
+    text = re.sub(r'\b\d{1,2}\s+(?:hours?|minutes?|days?|weeks?)\s+ago\b', '', text, flags=re.IGNORECASE)
+    
+    # Remove social media and sharing references
+    text = re.sub(r'(?:Share|Follow|Subscribe|Comment|Like|Tweet|Post|Download|Watch|Listen|Read more|Click here|Advertisement|Sponsored|Breaking|Update|LIVE|Exclusive)[^.]*?\.', '', text, flags=re.IGNORECASE)
+    
+    # Remove author/source attribution patterns
+    text = re.sub(r'^By\s+[A-Z][^.\n]*?(?=[A-Z])', '', text, flags=re.MULTILINE)
+    text = re.sub(r'(?:Reuters|Associated Press|AFP|AP|CNN|BBC|Bloomberg)[^.]*?reports?', '', text, flags=re.IGNORECASE)
+    text = re.sub(r'[A-Z][a-z]+\s+[A-Z][a-z]+(?:,\s*(?:Reuters|AP|CNN|BBC))?\s*[-–—]\s*', '', text)
+    
+    # Remove incomplete fragments at start
+    lines = text.split('.')
+    clean_lines = []
+    for line in lines:
+        line = line.strip()
+        # Keep only lines that look like complete sentences
+        if line and len(line) > 30 and line[0].isupper() and not line.startswith(('...', 'And ', 'But ', 'Or ', 'So ')):
+            # Check it's not metadata by looking for sentence structure
+            if any(word in line.lower() for word in [' is ', ' are ', ' was ', ' were ', ' has ', ' have ', ' said ', ' will ', ' would ', ' could ']):
+                clean_lines.append(line)
+    
+    text = '. '.join(clean_lines)
+    
+    # Final cleanup
     text = re.sub(r'\s+', ' ', text).strip()
+    text = re.sub(r'\.+', '.', text)  # Remove multiple periods
+    
+    # Fix spacing issues
+    text = re.sub(r'([a-z])([A-Z])', r'\1. \2', text)  # Add period between sentences if missing
+    text = re.sub(r'\s+', ' ', text)  # Normalize spaces
+    
     return text
 
 def extract_keywords(title):
@@ -108,58 +150,382 @@ def calculate_content_similarity(text1, text2):
     except Exception:
         return 0.0
 
-def group_articles_into_events(articles):
-    """Group related articles into events using similarity matching"""
-    events = []
-    used_articles = set()
+def extract_entities_regex(text):
+    """Extract named entities using regex patterns and NLTK"""
+    if not text:
+        return {'PERSON': [], 'ORG': [], 'GPE': [], 'LOC': []}
     
-    for i, article1 in enumerate(articles):
-        if i in used_articles:
-            continue
-            
-        # Start a new event with this article
-        event_articles = [article1]
-        used_articles.add(i)
+    entities = defaultdict(set)
+    
+    # Clean text first
+    text = clean_text(text)
+    
+    # Extract potential person names (capitalized consecutive words)
+    person_pattern = r'\b([A-Z][a-z]+ (?:[A-Z][a-z]+ )?[A-Z][a-z]+)\b'
+    for match in re.finditer(person_pattern, text):
+        name = match.group(1)
+        # Filter out common non-names
+        if not any(word in name.lower() for word in ['the', 'and', 'or', 'but', 'for']):
+            entities['PERSON'].add(name.lower())
+    
+    # Extract organizations (words ending in common org suffixes)
+    org_pattern = r'\b([A-Z][A-Za-z]+(?:\s+[A-Z][A-Za-z]+)*(?:\s+(?:Inc|Corp|LLC|Ltd|Company|Organization|Department|Ministry|Agency|Commission|Committee|Council|Board|Authority|University|College|Institute|Hospital|Center|Bank|Group|Association|Federation|Union|Party|Court|Office|Bureau|Service|Force|Army|Navy|Police|NATO|UN|EU|WHO|IMF|FBI|CIA|NSA|FDA|CDC|FEMA|NASA))\b)'
+    for match in re.finditer(org_pattern, text):
+        entities['ORG'].add(match.group(1).lower())
+    
+    # Extract countries and cities (maintain a basic list)
+    locations = {
+        'countries': ['united states', 'america', 'china', 'russia', 'ukraine', 'israel', 'palestine', 'gaza', 'iran', 'iraq', 'syria', 'lebanon', 'egypt', 'saudi arabia', 'india', 'pakistan', 'afghanistan', 'france', 'germany', 'uk', 'britain', 'italy', 'spain', 'canada', 'mexico', 'brazil', 'japan', 'australia', 'turkey', 'poland', 'sweden', 'norway', 'finland'],
+        'cities': ['washington', 'new york', 'los angeles', 'chicago', 'london', 'paris', 'berlin', 'moscow', 'beijing', 'shanghai', 'tokyo', 'kyiv', 'kiev', 'jerusalem', 'tel aviv', 'gaza city', 'damascus', 'baghdad', 'tehran', 'mumbai', 'delhi', 'cairo', 'istanbul', 'rome', 'madrid', 'toronto', 'sydney', 'melbourne']
+    }
+    
+    text_lower = text.lower()
+    for country in locations['countries']:
+        if country in text_lower:
+            entities['GPE'].add(country)
+    
+    for city in locations['cities']:
+        if city in text_lower:
+            entities['LOC'].add(city)
+    
+    # Extract quoted entities (often important names/terms)
+    quote_pattern = r'["\']([^"\']*?)["\']'
+    for match in re.finditer(quote_pattern, text):
+        quoted = match.group(1)
+        if 2 < len(quoted) < 50:  # Reasonable length for entity
+            # Determine type based on context
+            if any(word in quoted.lower() for word in ['said', 'told', 'stated']):
+                continue  # Skip quotes that are speech
+            elif quoted[0].isupper():
+                entities['PERSON'].add(quoted.lower())
+    
+    return {k: list(v) for k, v in entities.items()}
+
+def calculate_entity_overlap(entities1, entities2):
+    """Calculate entity overlap score between two sets of entities"""
+    if not entities1 or not entities2:
+        return 0.0
+    
+    score = 0.0
+    weights = {'PERSON': 0.3, 'ORG': 0.25, 'GPE': 0.2, 'LOC': 0.15, 'EVENT': 0.1}
+    
+    for entity_type, weight in weights.items():
+        set1 = set(entities1.get(entity_type, []))
+        set2 = set(entities2.get(entity_type, []))
         
-        # Find similar articles
-        for j, article2 in enumerate(articles):
-            if j <= i or j in used_articles:
+        if set1 and set2:
+            overlap = len(set1.intersection(set2))
+            total = len(set1.union(set2))
+            if total > 0:
+                score += weight * (overlap / total)
+    
+    return score
+
+def calculate_enhanced_content_similarity(text1, text2):
+    """Enhanced content similarity using bi-gram TF-IDF and key phrase matching"""
+    if not text1 or not text2:
+        return 0.0
+    
+    # Clean texts
+    clean_text1 = clean_text(text1)
+    clean_text2 = clean_text(text2)
+    
+    if len(clean_text1) < 50 or len(clean_text2) < 50:
+        return 0.0
+    
+    try:
+        # Use bi-gram TF-IDF for better phrase matching
+        vectorizer = TfidfVectorizer(
+            max_features=500,
+            stop_words='english',
+            ngram_range=(1, 3),  # Unigrams, bigrams, and trigrams
+            min_df=1
+        )
+        
+        tfidf_matrix = vectorizer.fit_transform([clean_text1[:2000], clean_text2[:2000]])
+        similarity = cosine_similarity(tfidf_matrix[0:1], tfidf_matrix[1:2])[0][0]
+        
+        # Boost score if key phrases match
+        # Extract important phrases (consecutive capitalized words)
+        phrase_pattern = r'\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,3})\b'
+        phrases1 = set(re.findall(phrase_pattern, text1))
+        phrases2 = set(re.findall(phrase_pattern, text2))
+        
+        if phrases1 and phrases2:
+            phrase_overlap = len(phrases1.intersection(phrases2)) / min(len(phrases1), len(phrases2))
+            similarity = similarity * 0.7 + phrase_overlap * 0.3
+        
+        return min(similarity, 1.0)
+    except:
+        return 0.0
+
+def temporal_cluster_articles(articles, window_hours=12):
+    """Pre-cluster articles by temporal proximity"""
+    clusters = []
+    
+    # Sort articles by publication time
+    sorted_articles = sorted(articles, key=lambda x: x[4] if x[4] else datetime.min)
+    
+    for article in sorted_articles:
+        article_time = article[4]
+        if not article_time:
+            article_time = datetime.now()
+        
+        # Find appropriate cluster or create new one
+        placed = False
+        for cluster in clusters:
+            cluster_time = cluster[0][4] if cluster[0][4] else datetime.now()
+            time_diff = abs((article_time - cluster_time).total_seconds() / 3600)
+            
+            if time_diff <= window_hours:
+                cluster.append(article)
+                placed = True
+                break
+        
+        if not placed:
+            clusters.append([article])
+    
+    return clusters
+
+def extract_key_entities(text):
+    """Extract the most important named entities from text, avoiding metadata"""
+    if not text or len(text) < 50:
+        return set()
+    
+    # Clean text first - remove obvious metadata
+    text = text[:2000]  # Limit for performance
+    
+    # Remove common metadata patterns
+    metadata_patterns = [
+        r'published on.*?\n',
+        r'recommended stories.*?\n', 
+        r'related stories.*?\n',
+        r'image.*?getty.*?\n',
+        r'photograph.*?\n',
+        r'(ap|reuters|afp).*?contributed.*?\n',
+        r'view.*?comments.*?\n',
+        r'read more.*?\n',
+        r'click here.*?\n'
+    ]
+    
+    for pattern in metadata_patterns:
+        text = re.sub(pattern, '', text, flags=re.IGNORECASE)
+    
+    entities = set()
+    
+    # Extract proper nouns with very strict filtering
+    pattern = r'\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,2})\b'
+    matches = re.findall(pattern, text)
+    
+    # Much more comprehensive list of non-entities
+    non_entities = {
+        'The', 'This', 'That', 'These', 'Those', 'There', 'Here', 'When', 'Where',
+        'What', 'Who', 'Why', 'How', 'Monday', 'Tuesday', 'Wednesday', 'Thursday',
+        'Friday', 'Saturday', 'Sunday', 'January', 'February', 'March', 'April',
+        'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December',
+        'New', 'First', 'Last', 'Next', 'Previous', 'Other', 'Another', 'Some', 'Many',
+        'Most', 'Few', 'All', 'Both', 'Each', 'Every', 'Any', 'Several', 'Following',
+        'According', 'However', 'Meanwhile', 'Moreover', 'Furthermore', 'Therefore',
+        'Published On', 'Recommended Stories', 'Related Stories', 'Associated Press',
+        'View', 'Comments', 'Share', 'Tweet', 'Facebook', 'Instagram', 'Twitter',
+        'Getty', 'Images', 'Photo', 'Picture', 'Video', 'Audio', 'More', 'News',
+        'Story', 'Article', 'Report', 'Update', 'Breaking', 'Live', 'Latest',
+        'Today', 'Yesterday', 'Tomorrow', 'Now', 'Then', 'Soon', 'Later', 'Before',
+        'After', 'During', 'While', 'Since', 'Until', 'Through', 'From', 'For',
+        'At', 'In', 'On', 'By', 'With', 'Without', 'About', 'Against', 'Between',
+        'Among', 'Through', 'During', 'Before', 'After', 'Above', 'Below', 'Up',
+        'Down', 'Out', 'Off', 'Over', 'Under', 'Again', 'Further', 'Then', 'Once'
+    }
+    
+    # Track entity frequency and context
+    entity_counts = {}
+    
+    for match in matches:
+        if match not in non_entities and len(match) > 3:
+            # Skip if it looks like metadata
+            if any(meta in match.lower() for meta in ['published', 'recommended', 'story', 'image', 'photo']):
                 continue
                 
-            # Calculate similarities
-            title_sim = calculate_title_similarity(article1[2], article2[2])  # title
-            content_sim = calculate_content_similarity(article1[5], article2[5])  # text
-            
-            # Thresholds for grouping
-            if title_sim > 0.3 or content_sim > 0.6:
-                event_articles.append(article2)
-                used_articles.add(j)
+            # Count occurrences
+            count = text.count(match)
+            entity_counts[match] = count
+    
+    # Only include entities that are meaningful:
+    # 1. Multi-word proper nouns (likely people/places/organizations)
+    # 2. OR single-word entities that appear multiple times
+    for entity, count in entity_counts.items():
+        words = entity.split()
         
-        if len(event_articles) >= 1:  # Include single articles as events
-            events.append(event_articles)
+        if len(words) >= 2:  # Multi-word entities are more likely to be meaningful
+            entities.add(entity.lower())
+        elif count >= 3:  # Single-word entities must appear at least 3 times
+            entities.add(entity.lower())
+    
+    return entities
+
+def verify_event_coherence(event_articles):
+    """Post-process verification that all articles truly cover the same event"""
+    if len(event_articles) <= 1:
+        return event_articles
+    
+    # Extract entities from all articles
+    all_entities = []
+    for article in event_articles:
+        entities = extract_key_entities(article[5])
+        all_entities.append(entities)
+    
+    # Find core shared entities (must appear in at least half the articles)
+    entity_counts = {}
+    for entities in all_entities:
+        for entity in entities:
+            entity_counts[entity] = entity_counts.get(entity, 0) + 1
+    
+    min_appearances = max(2, len(event_articles) // 2)
+    core_entities = {e for e, c in entity_counts.items() if c >= min_appearances}
+    
+    if not core_entities:
+        # No shared entities - likely mismatched articles
+        # Return only the first article as a single event
+        return [event_articles[0]]
+    
+    # Verify each article shares core entities
+    verified_articles = []
+    for i, article in enumerate(event_articles):
+        article_entities = all_entities[i]
+        if article_entities & core_entities:  # Has at least one core entity
+            verified_articles.append(article)
+    
+    return verified_articles if len(verified_articles) > 1 else []
+
+def group_articles_into_events(articles):
+    """High-precision event matching with post-verification"""
+    events = []
+    used_indices = set()
+    
+    for i, article1 in enumerate(articles):
+        if i in used_indices:
+            continue
+        
+        event_articles = [article1]
+        used_indices.add(i)
+        
+        # Extract key information from article1
+        title1 = article1[2].lower() if article1[2] else ""
+        text1 = article1[5][:2000] if article1[5] else ""
+        outlet1 = article1[3]
+        time1 = article1[4]
+        entities1 = extract_key_entities(text1)
+        
+        # Extract title keywords
+        title1_words = set(re.findall(r'\b[a-z]{3,}\b', title1))
+        common = {'the', 'and', 'for', 'are', 'but', 'not', 'you', 'all', 'can', 'had', 
+                 'her', 'was', 'one', 'our', 'out', 'day', 'get', 'has', 'him', 'his',
+                 'how', 'man', 'new', 'now', 'old', 'see', 'two', 'who', 'boy', 'did',
+                 'its', 'let', 'put', 'say', 'she', 'too', 'use', 'said', 'says', 'will'}
+        title1_words = title1_words - common
+        
+        for j, article2 in enumerate(articles):
+            if j <= i or j in used_indices:
+                continue
+            
+            # Don't group articles from same outlet
+            if article2[3] == outlet1:
+                continue
+            
+            title2 = article2[2].lower() if article2[2] else ""
+            text2 = article2[5][:2000] if article2[5] else ""
+            time2 = article2[4]
+            entities2 = extract_key_entities(text2)
+            
+            # Time check - must be within 24 hours
+            if time1 and time2:
+                time_diff = abs((time1 - time2).total_seconds() / 3600)
+                if time_diff > 24:
+                    continue
+            
+            # Must share significant entities (at least 4 AND 50% of smaller set)
+            if entities1 and entities2:
+                shared_entities = entities1 & entities2
+                min_entities = min(len(entities1), len(entities2))
+                
+                # Much stricter requirements to prevent mismatches
+                if len(shared_entities) < 4 or len(shared_entities) < min_entities * 0.5:
+                    continue
+            else:
+                # If no entities extracted, skip
+                continue
+            
+            # Title keywords must also overlap
+            title2_words = set(re.findall(r'\b[a-z]{3,}\b', title2))
+            title2_words = title2_words - common
+            
+            if title1_words and title2_words:
+                title_overlap = len(title1_words & title2_words)
+                if title_overlap < 3:  # At least 3 shared keywords
+                    continue
+            
+            # If all checks pass, add to event
+            event_articles.append(article2)
+            used_indices.add(j)
+        
+        # Verify coherence of grouped articles
+        verified_articles = verify_event_coherence(event_articles)
+        
+        if len(verified_articles) > 1:
+            events.append(verified_articles)
     
     return events
 
 def generate_event_summary(event_articles):
-    """Generate a cleaned summary for an event from multiple articles"""
+    """Generate a clean, factual summary from the best article"""
     if not event_articles:
-        return ""
+        return "No summary available."
     
-    # Get the longest, most detailed article
-    best_article = max(event_articles, key=lambda x: len(x[5]) if x[5] else 0)
+    # Prefer articles from authoritative sources
+    priority_outlets = ['Reuters', 'Associated Press', 'BBC News', 'BBC World', 'AP News', 'The Guardian', 'The New York Times', 'CNN', 'Al Jazeera']
     
-    summary = clean_text(best_article[5])
+    # Sort articles by priority and length
+    sorted_articles = sorted(event_articles, 
+                           key=lambda x: (x[3] in priority_outlets, len(x[5]) if x[5] else 0), 
+                           reverse=True)
     
-    # Limit length and clean up
-    sentences = summary.split('. ')
-    if len(sentences) > 3:
-        summary = '. '.join(sentences[:3]) + '.'
+    # Try each article until we get a good summary
+    for article in sorted_articles:
+        text = article[5]
+        if not text or len(text) < 100:
+            continue
+            
+        # Aggressively clean the text
+        summary = clean_text(text)
+        
+        if not summary or len(summary) < 50:
+            continue
+        
+        # Extract first 2-3 complete sentences
+        sentences = []
+        for sentence in summary.split('.'):
+            sentence = sentence.strip()
+            if sentence and len(sentence) > 30:
+                # Ensure proper sentence structure
+                if not sentence[0].isupper():
+                    sentence = sentence[0].upper() + sentence[1:] if len(sentence) > 1 else sentence.upper()
+                sentences.append(sentence)
+                if len(sentences) >= 3:
+                    break
+        
+        if sentences:
+            final_summary = '. '.join(sentences[:2]) + '.'
+            # Remove any double periods
+            final_summary = re.sub(r'\.+', '.', final_summary)
+            
+            # Length check
+            if len(final_summary) > 400:
+                final_summary = final_summary[:397] + '...'
+            
+            return final_summary
     
-    # Ensure reasonable length
-    if len(summary) > 500:
-        summary = summary[:497] + '...'
-    
-    return summary
+    # Fallback if no good summary found
+    return "Summary unavailable - article content could not be processed."
 
 def calculate_eqis_score(event_articles):
     """Calculate Event Quality & Impact Score (EQIS) for an event"""
@@ -229,9 +595,11 @@ def main():
         cur.execute("""
             SELECT id, url, title, outlet, published_at, text, raw_html
             FROM articles 
-            WHERE published_at > NOW() - INTERVAL '24 hours'
+            WHERE published_at > NOW() - INTERVAL '48 hours'
+                AND text IS NOT NULL 
+                AND LENGTH(text) > 100
             ORDER BY published_at DESC 
-            LIMIT 200
+            LIMIT 300
         """)
         articles = cur.fetchall()
         
