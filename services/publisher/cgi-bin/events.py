@@ -43,59 +43,41 @@ def get_db_connection():
     return conn
 
 def clean_text(text, aggressive=True):
-    """Aggressively clean text removing ALL metadata and non-content"""
+    """Clean text removing metadata while preserving readability"""
     if not text:
         return ""
     
-    # Remove everything before the first real sentence
-    # Look for pattern like "Location/Source - "
-    text = re.sub(r'^[^.!?]*?[A-Z]{2,}[^.!?]*?[-–—]\s*', '', text, flags=re.MULTILINE)
+    # Remove HTML entities and tags
+    text = re.sub(r'&[a-zA-Z]+;', ' ', text)
+    text = re.sub(r'<[^>]+>', ' ', text)
     
     # Remove URLs and web references
     text = re.sub(r'https?://\S+', '', text)
     text = re.sub(r'www\.\S+', '', text)
-    text = re.sub(r'/[a-zA-Z0-9_\-./]+', '', text)  # Remove paths
     
-    # Remove ALL image/photo/media references and captions
+    # Remove media references and captions
     text = re.sub(r'(?:Image|Photo|Picture|Photograph|Video|WATCH|Getty|Reuters|AP|AFP|EPA|BBC|CNN)[^.]*?\.', '', text, flags=re.IGNORECASE)
-    text = re.sub(r'\[.*?\]', '', text)  # Remove ALL bracketed content
-    text = re.sub(r'\(.*?\)', '', text)  # Remove parenthetical metadata
+    text = re.sub(r'\[.*?\]', '', text)  # Remove bracketed content
+    text = re.sub(r'\((?:Reuters|AP|AFP|Getty|Bloomberg)[^)]*\)', '', text, flags=re.IGNORECASE)
     
-    # Remove dates, times, and bylines
-    text = re.sub(r'\b(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)[^.]*?(?=[A-Z])', '', text)
-    text = re.sub(r'\b(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2}[^.]*?(?=[A-Z])', '', text)
-    text = re.sub(r'\d{1,2}:\d{2}\s*(?:AM|PM|am|pm)?[^.]*?(?=[A-Z])', '', text)
-    text = re.sub(r'\d{4}-\d{2}-\d{2}', '', text)
+    # Remove metadata patterns at the beginning
+    text = re.sub(r'^[^.!?]*?(?:Reuters|AP|AFP|Associated Press|By\s+\w+)[^.!?]*?[-–—]\s*', '', text, flags=re.IGNORECASE)
+    text = re.sub(r'^\w+\s*,\s*\w+\s*[-–—]\s*', '', text)  # Location, Country - 
+    
+    # Remove timestamps and date references
+    text = re.sub(r'\d{1,2}:\d{2}(?:\s*(?:AM|PM|am|pm|UTC|GMT))?', '', text)
     text = re.sub(r'\b\d{1,2}\s+(?:hours?|minutes?|days?|weeks?)\s+ago\b', '', text, flags=re.IGNORECASE)
+    text = re.sub(r'(?:Published On|Updated|Posted)\s+\d+\s+\w+\s+\d{4}', '', text, flags=re.IGNORECASE)
     
-    # Remove social media and sharing references
-    text = re.sub(r'(?:Share|Follow|Subscribe|Comment|Like|Tweet|Post|Download|Watch|Listen|Read more|Click here|Advertisement|Sponsored|Breaking|Update|LIVE|Exclusive)[^.]*?\.', '', text, flags=re.IGNORECASE)
+    # Remove byline patterns
+    text = re.sub(r'^By\s+[A-Z][^.]+?(?=\s[A-Z][a-z]|\s+The|\s+A)', '', text, flags=re.MULTILINE)
+    text = re.sub(r'By\s+[A-Z][a-z]+\s+[A-Z][a-z]+\s*', '', text)
     
-    # Remove author/source attribution patterns
-    text = re.sub(r'^By\s+[A-Z][^.\n]*?(?=[A-Z])', '', text, flags=re.MULTILINE)
-    text = re.sub(r'(?:Reuters|Associated Press|AFP|AP|CNN|BBC|Bloomberg)[^.]*?reports?', '', text, flags=re.IGNORECASE)
-    text = re.sub(r'[A-Z][a-z]+\s+[A-Z][a-z]+(?:,\s*(?:Reuters|AP|CNN|BBC))?\s*[-–—]\s*', '', text)
+    # Remove social/sharing text
+    text = re.sub(r'(?:Share|Follow|Subscribe|Comment|Like|Tweet|Post|Download|Watch|Listen|Read more|Click here|Advertisement|Sponsored)[^.]*?\.', '', text, flags=re.IGNORECASE)
     
-    # Remove incomplete fragments at start
-    lines = text.split('.')
-    clean_lines = []
-    for line in lines:
-        line = line.strip()
-        # Keep only lines that look like complete sentences
-        if line and len(line) > 30 and line[0].isupper() and not line.startswith(('...', 'And ', 'But ', 'Or ', 'So ')):
-            # Check it's not metadata by looking for sentence structure
-            if any(word in line.lower() for word in [' is ', ' are ', ' was ', ' were ', ' has ', ' have ', ' said ', ' will ', ' would ', ' could ']):
-                clean_lines.append(line)
-    
-    text = '. '.join(clean_lines)
-    
-    # Final cleanup
+    # Clean up spacing and normalize
     text = re.sub(r'\s+', ' ', text).strip()
-    text = re.sub(r'\.+', '.', text)  # Remove multiple periods
-    
-    # Fix spacing issues
-    text = re.sub(r'([a-z])([A-Z])', r'\1. \2', text)  # Add period between sentences if missing
-    text = re.sub(r'\s+', ' ', text)  # Normalize spaces
     
     return text
 
@@ -438,7 +420,7 @@ def verify_event_coherence(event_articles):
     return verified_articles if len(verified_articles) > 1 else []
 
 def group_articles_into_events(articles):
-    """High-precision event matching with post-verification"""
+    """High-precision event matching with post-verification and duplicate prevention"""
     events = []
     used_indices = set()
     
@@ -465,11 +447,16 @@ def group_articles_into_events(articles):
         title1_words = title1_words - common
         
         for j, article2 in enumerate(articles):
+            # CRITICAL FIX: Check if article2 is already used in ANY capacity
             if j <= i or j in used_indices:
                 continue
             
             # Don't group articles from same outlet
             if article2[3] == outlet1:
+                continue
+            
+            # Additional safety check: ensure this isn't the same article by ID or URL
+            if article1[0] == article2[0] or (article1[1] and article2[1] and article1[1] == article2[1]):
                 continue
             
             title2 = article2[2].lower() if article2[2] else ""
@@ -504,9 +491,9 @@ def group_articles_into_events(articles):
                 if title_overlap < 3:  # At least 3 shared keywords
                     continue
             
-            # If all checks pass, add to event
+            # If all checks pass, add to event and mark as used
             event_articles.append(article2)
-            used_indices.add(j)
+            used_indices.add(j)  # CRITICAL FIX: Mark as used immediately
         
         # Verify coherence of grouped articles
         verified_articles = verify_event_coherence(event_articles)
@@ -517,55 +504,246 @@ def group_articles_into_events(articles):
     return events
 
 def generate_event_summary(event_articles):
-    """Generate a clean, factual summary from the best article"""
+    """Generate a clean, grammatical summary from the best article"""
     if not event_articles:
         return "No summary available."
     
     # Prefer articles from authoritative sources
-    priority_outlets = ['Reuters', 'Associated Press', 'BBC News', 'BBC World', 'AP News', 'The Guardian', 'The New York Times', 'CNN', 'Al Jazeera']
+    priority_outlets = ['Reuters', 'Associated Press', 'BBC News', 'BBC World', 'AP News', 'The Guardian', 'The New York Times', 'CNN', 'Al Jazeera', 'Deutsche Welle', 'NPR News']
     
-    # Sort articles by priority and length
+    # Sort articles by priority and content quality
     sorted_articles = sorted(event_articles, 
                            key=lambda x: (x[3] in priority_outlets, len(x[5]) if x[5] else 0), 
                            reverse=True)
     
-    # Try each article until we get a good summary
     for article in sorted_articles:
         text = article[5]
         if not text or len(text) < 100:
             continue
             
-        # Aggressively clean the text
-        summary = clean_text(text)
+        # Clean the text while preserving sentence structure
+        cleaned_text = clean_text(text)
         
-        if not summary or len(summary) < 50:
+        if not cleaned_text or len(cleaned_text) < 50:
             continue
         
-        # Extract first 2-3 complete sentences
-        sentences = []
-        for sentence in summary.split('.'):
-            sentence = sentence.strip()
-            if sentence and len(sentence) > 30:
-                # Ensure proper sentence structure
-                if not sentence[0].isupper():
-                    sentence = sentence[0].upper() + sentence[1:] if len(sentence) > 1 else sentence.upper()
-                sentences.append(sentence)
-                if len(sentences) >= 3:
-                    break
+        # Extract complete sentences with proper grammar
+        sentences = extract_complete_sentences(cleaned_text)
         
         if sentences:
-            final_summary = '. '.join(sentences[:2]) + '.'
-            # Remove any double periods
-            final_summary = re.sub(r'\.+', '.', final_summary)
+            # Select best sentences for summary
+            summary_sentences = select_summary_sentences(sentences, article[2])  # Pass title for context
             
-            # Length check
-            if len(final_summary) > 400:
-                final_summary = final_summary[:397] + '...'
-            
-            return final_summary
+            if summary_sentences:
+                final_summary = ' '.join(summary_sentences)
+                
+                # Clean up any remaining issues
+                final_summary = fix_grammar_issues(final_summary)
+                
+                # Length check and truncation
+                if len(final_summary) > 400:
+                    final_summary = truncate_at_sentence_boundary(final_summary, 400)
+                
+                return final_summary
     
-    # Fallback if no good summary found
-    return "Summary unavailable - article content could not be processed."
+    # Fallback: Generate summary from titles if content is unavailable
+    return generate_title_based_summary(event_articles)
+
+def extract_complete_sentences(text):
+    """Extract grammatically complete sentences"""
+    # Split by sentence endings
+    potential_sentences = re.split(r'[.!?]+', text)
+    complete_sentences = []
+    
+    for sentence in potential_sentences:
+        sentence = sentence.strip()
+        
+        # Skip if too short or doesn't look like a complete sentence
+        if len(sentence) < 20:
+            continue
+            
+        # Ensure sentence starts with capital letter
+        if sentence and not sentence[0].isupper():
+            sentence = sentence[0].upper() + sentence[1:] if len(sentence) > 1 else sentence.upper()
+        
+        # Check for basic sentence structure (subject + verb indicators)
+        if has_sentence_structure(sentence):
+            complete_sentences.append(sentence + '.')
+        
+        # Limit to prevent excessive processing
+        if len(complete_sentences) >= 5:
+            break
+    
+    return complete_sentences
+
+def has_sentence_structure(sentence):
+    """Check if sentence has basic grammatical structure"""
+    sentence_lower = sentence.lower()
+    
+    # Must contain a verb indicator
+    verb_indicators = [' is ', ' are ', ' was ', ' were ', ' has ', ' have ', ' will ', ' would ', 
+                      ' said ', ' says ', ' told ', ' announced ', ' reported ', ' confirmed ',
+                      ' killed ', ' died ', ' injured ', ' struck ', ' attacked ', ' launched ',
+                      ' ordered ', ' decided ', ' voted ', ' approved ', ' rejected ']
+    
+    has_verb = any(indicator in sentence_lower for indicator in verb_indicators)
+    
+    # Should not start with conjunctions or fragments
+    fragment_starts = ['and ', 'but ', 'or ', 'so ', 'however ', 'meanwhile ', 'also ', 'this ']
+    starts_properly = not any(sentence_lower.startswith(start) for start in fragment_starts)
+    
+    return has_verb and starts_properly
+
+def select_summary_sentences(sentences, title):
+    """Select the most relevant sentences for the summary"""
+    if not sentences:
+        return []
+    
+    # Extract key terms from title for relevance scoring
+    title_words = set(re.findall(r'\b\w{3,}\b', title.lower()))
+    
+    scored_sentences = []
+    for sentence in sentences:
+        # Score based on relevance to title and sentence quality
+        sentence_words = set(re.findall(r'\b\w{3,}\b', sentence.lower()))
+        relevance_score = len(title_words & sentence_words)
+        
+        # Prefer sentences that aren't too long or too short
+        length_score = 1.0 if 50 <= len(sentence) <= 200 else 0.5
+        
+        total_score = relevance_score * length_score
+        scored_sentences.append((sentence, total_score))
+    
+    # Sort by score and return top 2 sentences
+    scored_sentences.sort(key=lambda x: x[1], reverse=True)
+    return [sent[0] for sent in scored_sentences[:2]]
+
+def fix_grammar_issues(text):
+    """Fix common grammar and formatting issues"""
+    # Fix spacing around punctuation
+    text = re.sub(r'\s+([.!?])', r'\1', text)
+    text = re.sub(r'([.!?])([A-Z])', r'\1 \2', text)
+    
+    # Fix multiple spaces
+    text = re.sub(r'\s+', ' ', text)
+    
+    # Fix common article issues
+    text = re.sub(r'\ba\s+([aeiouAEIOU])', r'an \1', text)
+    
+    # Remove trailing periods before adding final period
+    text = re.sub(r'\.+$', '.', text)
+    
+    return text.strip()
+
+def truncate_at_sentence_boundary(text, max_length):
+    """Truncate text at sentence boundary near max_length"""
+    if len(text) <= max_length:
+        return text
+    
+    # Find last sentence boundary before max_length
+    truncate_point = text.rfind('.', 0, max_length)
+    if truncate_point > max_length * 0.7:  # Don't truncate too aggressively
+        return text[:truncate_point + 1]
+    else:
+        return text[:max_length - 3] + '...'
+
+def generate_title_based_summary(event_articles):
+    """Generate summary from article titles when content is unavailable"""
+    if not event_articles:
+        return "No summary available."
+    
+    # Get the most descriptive title
+    titles = [article[2] for article in event_articles if article[2]]
+    
+    if not titles:
+        return "Summary unavailable."
+    
+    # Find the longest, most descriptive title
+    best_title = max(titles, key=len)
+    
+    # Clean and format as a summary
+    summary = re.sub(r'[^\w\s.,!?-]', ' ', best_title)  # Remove special chars except basic punctuation
+    summary = re.sub(r'\s+', ' ', summary).strip()
+    
+    # Ensure it ends with a period
+    if summary and not summary.endswith(('.', '!', '?')):
+        summary += '.'
+    
+    return summary
+
+def calculate_article_quality_score(article):
+    """Calculate quality score for an article based on multiple factors"""
+    score = 0.0
+    
+    # Authority score (0-40): Based on outlet reputation
+    authority_outlets = {
+        'Reuters': 40, 'Associated Press': 38, 'AP News': 38, 'BBC News': 36, 'BBC World': 36,
+        'The Guardian': 34, 'The New York Times': 34, 'The Washington Post': 32, 'CNN': 30,
+        'Al Jazeera': 28, 'Deutsche Welle': 26, 'NPR News': 24, 'Zerohedge.com': 20
+    }
+    outlet = article[3] if article[3] else ''
+    score += authority_outlets.get(outlet, 15)  # Default 15 for unknown outlets
+    
+    # Content quality score (0-25): Based on text length and structure
+    text = article[5] if article[5] else ''
+    if len(text) > 2000:
+        score += 25
+    elif len(text) > 1000:
+        score += 20
+    elif len(text) > 500:
+        score += 15
+    elif len(text) > 200:
+        score += 10
+    else:
+        score += 5
+    
+    # Title quality score (0-20): Based on title descriptiveness
+    title = article[2] if article[2] else ''
+    if len(title) > 100:
+        score += 20
+    elif len(title) > 60:
+        score += 15
+    elif len(title) > 30:
+        score += 10
+    else:
+        score += 5
+    
+    # Recency bonus (0-15): More recent articles get higher scores
+    if article[4]:  # published_at
+        try:
+            from datetime import datetime, timezone
+            now = datetime.now(timezone.utc)
+            pub_time = ensure_timezone_aware(article[4])
+            hours_ago = (now - pub_time).total_seconds() / 3600
+            
+            if hours_ago <= 6:
+                score += 15
+            elif hours_ago <= 24:
+                score += 10
+            elif hours_ago <= 48:
+                score += 5
+            # No bonus for older articles
+        except:
+            score += 5  # Default if time calculation fails
+    
+    return min(score, 100)  # Cap at 100
+
+def get_best_article_for_title(event_articles):
+    """Select the best written article for title display"""
+    if not event_articles:
+        return None
+    
+    # Calculate quality scores for all articles
+    scored_articles = []
+    for article in event_articles:
+        quality_score = calculate_article_quality_score(article)
+        scored_articles.append((quality_score, article))
+    
+    # Sort by quality score (highest first)
+    scored_articles.sort(key=lambda x: x[0], reverse=True)
+    
+    # Return the best article
+    return scored_articles[0][1]
 
 def calculate_eqis_score(event_articles):
     """Calculate Event Quality & Impact Score (EQIS) for an event"""
@@ -640,7 +818,7 @@ def main():
         cur.execute("""
             SELECT id, url, title, outlet, published_at, text, raw_html
             FROM articles 
-            WHERE published_at > NOW() - INTERVAL '48 hours'
+            WHERE published_at > NOW() - INTERVAL '72 hours'
                 AND text IS NOT NULL 
                 AND LENGTH(text) > 100
             ORDER BY published_at DESC 
@@ -721,7 +899,7 @@ def main():
         </div>
         <div class="stat-card">
             <h3>Coverage Period</h3>
-            <div style="color: #27ae60; font-weight: bold;">24 Hours</div>
+            <div style="color: #27ae60; font-weight: bold;">72 Hours</div></div>
         </div>
     </div>
     
@@ -730,9 +908,11 @@ def main():
         
         if events_with_scores:
             for eqis_score, event_articles in events_with_scores[:20]:  # Top 20 events
-                # Get representative title (most common keywords)
-                titles = [article[2] for article in event_articles]
-                representative_title = max(titles, key=len)
+                # Get best article for title and source link
+                best_article = get_best_article_for_title(event_articles)
+                representative_title = best_article[2] if best_article and best_article[2] else "No title available"
+                best_source_url = best_article[1] if best_article and best_article[1] else "#"
+                best_source_outlet = best_article[3] if best_article and best_article[3] else "Unknown Source"
                 
                 # Generate summary
                 summary = generate_event_summary(event_articles)
@@ -742,16 +922,24 @@ def main():
                 
                 print(f"""
         <div class="event">
-            <div class="event-title">{representative_title}</div>
+            <div class="event-title"><a href="{best_source_url}" target="_blank" style="color: #3498db; text-decoration: none;">[{best_source_outlet}]</a> {representative_title}</div>
             <div class="event-summary">{summary}</div>
             <div class="event-articles">
                 <h4>Source Articles ({len(event_articles)}):</h4>""")
                 
+                # Sort articles by quality score for display
+                scored_articles = []
                 for article in event_articles:
+                    quality_score = calculate_article_quality_score(article)
+                    scored_articles.append((quality_score, article))
+                
+                scored_articles.sort(key=lambda x: x[0], reverse=True)
+                
+                for quality_score, article in scored_articles:
                     outlet = article[3] if article[3] else 'Unknown Source'
                     url = article[1] if article[1] else '#'
                     title = article[2] if article[2] else 'No title'
-                    print(f'                <a href="{url}" target="_blank" class="article-link">• {outlet}: {title[:80]}{"..." if len(title) > 80 else ""}</a>')
+                    print(f'                <a href="{url}" target="_blank" class="article-link"><span style="background: #e8f5e8; padding: 2px 6px; border-radius: 10px; font-size: 0.7em; margin-right: 5px; color: #2c5f2d;">{quality_score:.0f}</span>• {outlet}: {title[:80]}{"..." if len(title) > 80 else ""}</a>')
                 
                 print(f"""
             </div>

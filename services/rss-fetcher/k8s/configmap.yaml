@@ -82,6 +82,11 @@ data:
         outlet: "PBS NewsHour"
         interval: 30
         category: "news"
+        
+      - url: "https://feeds.feedburner.com/zerohedge/feed"
+        outlet: "Zerohedge.com"
+        interval: 30
+        category: "news"
 
     # Default settings for all feeds
     defaults:
