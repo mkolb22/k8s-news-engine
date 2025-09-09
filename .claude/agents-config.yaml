@@ -3,8 +3,9 @@
 
 agents:
   - name: k8s-engineer
-    description: "Kubernetes deployment and manifest specialist"
-    file: k8s-engineer.md
+    description: "Kubernetes deployment and manifest specialist for creating and managing K8s resources"
+    file: agents/k8s-engineer.agent
+    proactive: true
     triggers:
       - "kubernetes"
       - "k8s"
@@ -19,162 +20,89 @@ agents:
       - "Optimize resource configurations"
       - "Setup K8s networking"
 
-  - name: k8s-devops-engineer
-    description: "Kubernetes DevOps and CI/CD pipeline specialist"
-    file: k8s-devops-engineer.md
+  - name: devops-engineer
+    description: "DevOps and CI/CD pipeline specialist for deployment automation"
+    file: agents/devops-engineer.agent
+    proactive: true
     triggers:
       - "ci/cd"
       - "pipeline"
-      - "gitops"
-      - "argocd"
-      - "helm"
-      - "deployment automation"
+      - "deployment"
+      - "automation"
+      - "monitoring"
+      - "docker"
     capabilities:
       - "Setup CI/CD pipelines"
       - "Configure GitOps workflows"
-      - "Implement Helm charts"
-      - "Setup monitoring and logging"
+      - "Implement monitoring and alerting"
+      - "Automate deployment processes"
 
-  - name: k8s-admin
-    description: "Kubernetes cluster administration specialist"
-    file: k8s-admin.md
-    triggers:
-      - "cluster"
-      - "rbac"
-      - "security"
-      - "namespace"
-      - "node"
-      - "kubectl"
-    capabilities:
-      - "Configure RBAC policies"
-      - "Manage cluster security"
-      - "Setup namespaces and quotas"
-      - "Troubleshoot cluster issues"
-
-  - name: devops-engineer
-    description: "General DevOps and infrastructure automation specialist"
-    file: devops-engineer.md
-    triggers:
-      - "infrastructure"
-      - "terraform"
-      - "ansible"
-      - "automation"
-      - "monitoring"
-    capabilities:
-      - "Infrastructure as Code"
-      - "Configuration management"
-      - "Monitoring setup"
-      - "Automation scripting"
-
-  - name: devops-docker-engineer
+  - name: docker-engineer
     description: "Docker containerization and optimization specialist"
-    file: devops-docker-engineer.md
+    file: agents/docker-engineer.agent
+    proactive: true
     triggers:
       - "docker"
       - "dockerfile"
       - "container"
       - "image"
-      - "registry"
-      - "compose"
+      - "alpine"
     capabilities:
       - "Write optimized Dockerfiles"
-      - "Multi-stage builds"
       - "Container security"
-      - "Docker Compose configurations"
+      - "Multi-stage builds"
+      - "Image optimization"
 
-  - name: devops-ai-mcp-engineer
-    description: "AI/ML operations and MCP integration specialist"
-    file: devops-ai-mcp-engineer.md
+  - name: database-engineer
+    description: "Database design and PostgreSQL specialist"
+    file: agents/database-engineer.agent
+    proactive: true
     triggers:
-      - "mcp"
-      - "ai"
+      - "database"
+      - "postgresql"
+      - "sql"
+      - "schema"
+      - "migration"
+    capabilities:
+      - "Database schema design"
+      - "SQL query optimization"
+      - "Migration scripts"
+      - "PostgreSQL configuration"
+
+  - name: python-analytics
+    description: "Python analytics and machine learning specialist"
+    file: agents/python-analytics.agent
+    proactive: true
+    triggers:
+      - "python"
+      - "analytics"
       - "ml"
-      - "model"
-      - "inference"
-      - "mlops"
+      - "scikit-learn"
+      - "nltk"
+      - "pandas"
     capabilities:
-      - "Setup MCP servers"
-      - "ML model deployment"
-      - "AI pipeline automation"
-      - "Inference optimization"
-
-  - name: frontend-developer
-    description: "Frontend web development specialist"
-    file: frontend-developer.md
-    triggers:
-      - "frontend"
-      - "react"
-      - "vue"
-      - "ui"
-      - "web"
-      - "javascript"
-      - "typescript"
-    capabilities:
-      - "React/Vue development"
-      - "UI/UX implementation"
-      - "Frontend optimization"
-      - "API integration"
-
-  - name: software-team-lead
-    description: "Software project management and architecture specialist"
-    file: software-team-lead.md
-    triggers:
-      - "architecture"
-      - "design"
-      - "planning"
-      - "team"
-      - "project"
-      - "roadmap"
-    capabilities:
-      - "System architecture design"
-      - "Project planning"
-      - "Code review practices"
-      - "Team coordination"
-
-  - name: atlassian-cloud-administrator
-    description: "Atlassian Cloud suite administration specialist"
-    file: atlassian-cloud-administrator.md
-    triggers:
-      - "atlassian"
-      - "confluence"
-      - "bitbucket"
-      - "jira"
-      - "admin"
-    capabilities:
-      - "Atlassian suite setup"
-      - "User management"
-      - "Workflow configuration"
-      - "Integration setup"
-
-  - name: jira-cloud-administrator
-    description: "Jira Cloud configuration and workflow specialist"
-    file: jira-cloud-administrator.md
-    triggers:
-      - "jira"
-      - "workflow"
-      - "issue"
-      - "sprint"
-      - "agile"
-      - "kanban"
-    capabilities:
-      - "Jira workflow design"
-      - "Custom fields and screens"
-      - "Automation rules"
-      - "Reporting setup"
+      - "Python data analysis"
+      - "Machine learning pipelines"
+      - "NLP processing"
+      - "Analytics optimization"
 
 # Project-specific agent preferences
 project_preferences:
   primary_agents:
     - k8s-engineer
-    - k8s-devops-engineer
-    - devops-docker-engineer
+    - devops-engineer
+    - docker-engineer
   auto_invoke:
     - pattern: "*.yaml"
       agent: k8s-engineer
     - pattern: "Dockerfile*"
-      agent: devops-docker-engineer
+      agent: docker-engineer
     - pattern: "deploy.sh"
-      agent: k8s-devops-engineer
+      agent: devops-engineer
+    - pattern: "*.sql"
+      agent: database-engineer
+    - pattern: "*.py"
+      agent: python-analytics
 
 # Agent invocation settings
 settings:

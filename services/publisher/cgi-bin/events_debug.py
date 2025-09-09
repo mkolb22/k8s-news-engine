@@ -1,11 +1,9 @@
 #!/usr/bin/env python3
-import cgi, cgitb, os, sys, re
+import os, sys, re, traceback
 import psycopg2
 from datetime import datetime, timedelta
 from collections import defaultdict
 import json
-
-cgitb.enable()
 
 def get_db_connection():
     """Get database connection from environment"""
@@ -158,4 +156,24 @@ def main():
         print(f"<h1>Error</h1><pre>{str(e)}</pre>")
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as e:
+        print("Content-Type: text/html\n")
+        print(f"""<!DOCTYPE html>
+<html>
+<head>
+    <title>Debug Error</title>
+    <style>
+        body {{ font-family: Arial, sans-serif; margin: 20px; background: #f5f5f5; }}
+        .error {{ background: #e74c3c; color: white; padding: 20px; border-radius: 5px; }}
+    </style>
+</head>
+<body>
+    <div class="error">
+        <h1>Debug Error</h1>
+        <p>Debug script error:</p>
+        <pre>{traceback.format_exc()}</pre>
+    </div>
+</body>
+</html>""")

@@ -1,6 +1,9 @@
+# REQUIRED: This service must always use Alpine Linux as the base image
+# Alpine provides a minimal, secure foundation with a small attack surface
+# Current LTS version: 3.20 (supported until 2026-04)
 FROM alpine:3.20
 
-# Install lighttpd, python3, and postgresql client
+# Install lighttpd, python3, postgresql client, and timezone data
 RUN apk add --no-cache \
     lighttpd \
     python3 \
@@ -8,7 +11,8 @@ RUN apk add --no-cache \
     postgresql-dev \
     gcc \
     python3-dev \
-    musl-dev
+    musl-dev \
+    tzdata
 
 # Install psycopg2 and ML dependencies using Alpine package manager
 RUN apk add --no-cache \
@@ -38,6 +42,9 @@ RUN chmod +x /var/www/cgi-bin/*
 # Create non-root user
 RUN adduser -D -s /bin/sh -u 1000 publisher && \
     chown -R publisher:publisher /var/www /var/log/lighttpd
+
+# Set timezone environment variable for consistent timezone handling
+ENV TZ=UTC
 
 # Note: lighttpd.conf will be mounted from ConfigMap at /etc/lighttpd/lighttpd.conf
 EXPOSE 8080

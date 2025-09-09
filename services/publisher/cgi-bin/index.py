@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
-import cgi, cgitb, os, sys
+import os, sys, traceback
 import psycopg2
 from datetime import datetime
-cgitb.enable()
 
 def get_db_connection():
     """Get database connection from environment"""
@@ -146,4 +145,24 @@ def main():
 </html>""")
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as e:
+        print("Content-Type: text/html\n")
+        print(f"""<!DOCTYPE html>
+<html>
+<head>
+    <title>Error</title>
+    <style>
+        body {{ font-family: Arial, sans-serif; margin: 20px; background: #f5f5f5; }}
+        .error {{ background: #e74c3c; color: white; padding: 20px; border-radius: 5px; }}
+    </style>
+</head>
+<body>
+    <div class="error">
+        <h1>Server Error</h1>
+        <p>An unexpected error occurred:</p>
+        <pre>{traceback.format_exc()}</pre>
+    </div>
+</body>
+</html>""")

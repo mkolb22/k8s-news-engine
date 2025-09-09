@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-import cgi, cgitb, os, sys, re
+import os, sys, re, traceback
 import psycopg2
-from datetime import datetime, timedelta
+import psycopg2.tz
+from datetime import datetime, timedelta, timezone
 from collections import defaultdict
 import nltk
 from nltk.corpus import stopwords
@@ -10,12 +11,36 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 import numpy as np
 
-cgitb.enable()
+def ensure_timezone_aware(dt):
+    """Ensure datetime is timezone aware - enhanced with better error handling"""
+    if dt is None:
+        return datetime.now(timezone.utc)
+    
+    # Handle timezone-naive datetime objects
+    if dt.tzinfo is None:
+        # Assume UTC for database datetimes
+        return dt.replace(tzinfo=timezone.utc)
+    
+    # Handle timezone-aware datetime objects
+    if dt.tzinfo is not None:
+        # Convert to UTC if not already
+        return dt.astimezone(timezone.utc) if dt.tzinfo != timezone.utc else dt
+    
+    return dt
 
 def get_db_connection():
-    """Get database connection from environment"""
+    """Get database connection with timezone configuration"""
     db_url = os.environ.get('DATABASE_URL', 'postgresql://appuser:newsengine2024@postgresql.news-engine.svc.cluster.local:5432/newsdb?sslmode=disable')
-    return psycopg2.connect(db_url)
+    
+    # Create connection with timezone configuration
+    conn = psycopg2.connect(db_url)
+    
+    # Set timezone to UTC for this connection
+    with conn.cursor() as cur:
+        cur.execute("SET timezone = 'UTC'")
+        conn.commit()
+    
+    return conn
 
 def clean_text(text, aggressive=True):
     """Aggressively clean text removing ALL metadata and non-content"""
@@ -263,29 +288,44 @@ def temporal_cluster_articles(articles, window_hours=12):
     """Pre-cluster articles by temporal proximity"""
     clusters = []
     
-    # Sort articles by publication time
-    sorted_articles = sorted(articles, key=lambda x: x[4] if x[4] else datetime.min)
-    
-    for article in sorted_articles:
-        article_time = article[4]
-        if not article_time:
-            article_time = datetime.now()
+    try:
+        # Sort articles by publication time
+        sorted_articles = sorted(articles, key=lambda x: ensure_timezone_aware(x[4]))
         
-        # Find appropriate cluster or create new one
-        placed = False
-        for cluster in clusters:
-            cluster_time = cluster[0][4] if cluster[0][4] else datetime.now()
-            time_diff = abs((article_time - cluster_time).total_seconds() / 3600)
-            
-            if time_diff <= window_hours:
-                cluster.append(article)
-                placed = True
-                break
+        for article in sorted_articles:
+            try:
+                article_time = ensure_timezone_aware(article[4])
+                
+                # Find appropriate cluster or create new one
+                placed = False
+                for cluster in clusters:
+                    try:
+                        cluster_time = ensure_timezone_aware(cluster[0][4])
+                        time_diff = abs((article_time - cluster_time).total_seconds() / 3600)
+                        
+                        if time_diff <= window_hours:
+                            cluster.append(article)
+                            placed = True
+                            break
+                    except Exception as e:
+                        # Log timezone arithmetic error but continue
+                        print(f"<!-- Timezone arithmetic error in clustering: {str(e)} -->", file=sys.stderr)
+                        continue
+                
+                if not placed:
+                    clusters.append([article])
+                    
+            except Exception as e:
+                print(f"<!-- Error processing article time in clustering: {str(e)} -->", file=sys.stderr)
+                # Skip this article and continue
+                continue
         
-        if not placed:
-            clusters.append([article])
-    
-    return clusters
+        return clusters
+        
+    except Exception as e:
+        print(f"<!-- Critical error in temporal clustering: {str(e)} -->", file=sys.stderr)
+        # Return empty clusters to prevent complete failure
+        return []
 
 def extract_key_entities(text):
     """Extract the most important named entities from text, avoiding metadata"""
@@ -413,7 +453,7 @@ def group_articles_into_events(articles):
         title1 = article1[2].lower() if article1[2] else ""
         text1 = article1[5][:2000] if article1[5] else ""
         outlet1 = article1[3]
-        time1 = article1[4]
+        time1 = ensure_timezone_aware(article1[4])
         entities1 = extract_key_entities(text1)
         
         # Extract title keywords
@@ -434,7 +474,7 @@ def group_articles_into_events(articles):
             
             title2 = article2[2].lower() if article2[2] else ""
             text2 = article2[5][:2000] if article2[5] else ""
-            time2 = article2[4]
+            time2 = ensure_timezone_aware(article2[4])
             entities2 = extract_key_entities(text2)
             
             # Time check - must be within 24 hours
@@ -548,19 +588,24 @@ def calculate_eqis_score(event_articles):
         coherence_score = 15  # Default for single article
     
     # Recency Score (0-20): Based on publication time
-    now = datetime.now()
-    if event_articles[0][4]:  # published_at
-        hours_ago = (now - event_articles[0][4]).total_seconds() / 3600
-        if hours_ago <= 2:
-            recency_score = 20
-        elif hours_ago <= 12:
-            recency_score = 15
-        elif hours_ago <= 24:
-            recency_score = 10
+    try:
+        now = datetime.now(timezone.utc)
+        if event_articles[0][4]:  # published_at
+            first_article_time = ensure_timezone_aware(event_articles[0][4])
+            hours_ago = (now - first_article_time).total_seconds() / 3600
+            if hours_ago <= 2:
+                recency_score = 20
+            elif hours_ago <= 12:
+                recency_score = 15
+            elif hours_ago <= 24:
+                recency_score = 10
+            else:
+                recency_score = 5
         else:
-            recency_score = 5
-    else:
-        recency_score = 10
+            recency_score = 10
+    except Exception as e:
+        print(f"<!-- Timezone error in recency calculation: {str(e)} -->", file=sys.stderr)
+        recency_score = 10  # Default score if timezone calculation fails
     
     # Authority Score (0-15): Based on outlet reputation
     authority_outlets = {
@@ -754,4 +799,25 @@ def main():
 </html>""")
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as e:
+        print("Content-Type: text/html\n")
+        print(f"""<!DOCTYPE html>
+<html>
+<head>
+    <title>Event Analysis Error</title>
+    <style>
+        body {{ font-family: Arial, sans-serif; margin: 20px; background: #f5f5f5; }}
+        .error {{ background: #e74c3c; color: white; padding: 20px; border-radius: 5px; }}
+    </style>
+</head>
+<body>
+    <div class="error">
+        <h1>Event Analysis Error</h1>
+        <p>Could not process event analysis:</p>
+        <pre>{traceback.format_exc()}</pre>
+        <p><a href="/cgi-bin/index.py" style="color: #ecf0f1;">← Back to Articles</a></p>
+    </div>
+</body>
+</html>""")

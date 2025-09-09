@@ -1,0 +1,67 @@
+# Claude Code Project Configuration
+# This file ensures proper subagent initialization for the K8s News Engine project
+
+project:
+  name: "K8s News Engine"
+  description: "Microservices-based news verification and truth analysis system"
+  version: "1.0.0"
+  
+  # Auto-load configuration
+  auto_load:
+    agents: true
+    config: true
+    memory: true
+
+  # Project structure awareness
+  structure:
+    services:
+      - "services/analytics-py"
+      - "services/publisher" 
+      - "services/claim-extractor"
+      - "services/rss-fetcher"
+    deployment:
+      - "deployment/"
+      - "database/"
+    documentation:
+      - "docs/"
+      - "CLAUDE.md"
+      - "README.md"
+
+  # Default context
+  context:
+    primary_language: "Python"
+    infrastructure: "Kubernetes"
+    database: "PostgreSQL" 
+    containerization: "Docker"
+
+# Initialization hooks
+initialization:
+  commands:
+    - "Load all available subagents from .claude/agents/"
+    - "Parse agents-config.yaml for agent definitions"
+    - "Enable proactive agent suggestions"
+    - "Set project-specific context"
+
+# Agent activation rules
+activation:
+  always_available:
+    - "devops-engineer"
+    - "k8s-engineer"
+    - "docker-engineer"
+  
+  context_based:
+    - trigger: "*.py"
+      agent: "python-analytics"
+    - trigger: "*.sql"
+      agent: "database-engineer"
+    - trigger: "Dockerfile"
+      agent: "docker-engineer"
+    - trigger: "*.yaml"
+      agent: "k8s-engineer"
+
+# Session preferences
+session:
+  enable_multi_agent: true
+  show_agent_reasoning: false
+  auto_suggest_agents: true
+  proactive_assistance: true
