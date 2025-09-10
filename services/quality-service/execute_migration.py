@@ -171,7 +171,7 @@ def execute_migration():
                 'articles' as table_name,
                 COUNT(*) as total_rows,
                 COUNT(outlet_name) as outlet_name_populated,
-                COUNT(outlet) as outlet_populated
+                COUNT(outlet_name) as outlet_name_populated_duplicate
             FROM articles
             UNION ALL
             SELECT 

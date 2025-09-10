@@ -29,6 +29,12 @@ spec:
           value: "300"  # 5 minutes
         - name: TZ
           value: "UTC"
+        - name: FEEDS_CONFIG_PATH
+          value: "/config/feeds.yaml"
+        volumeMounts:
+        - name: feeds-config
+          mountPath: /config
+          readOnly: true
         resources:
           requests:
             memory: "64Mi"    # Reduced for Go binary
@@ -64,4 +70,11 @@ spec:
           capabilities:
             drop:
             - ALL
+      volumes:
+      - name: feeds-config
+        configMap:
+          name: rss-feeds-config
+          items:
+          - key: feeds.yaml
+            path: feeds.yaml
       restartPolicy: Always

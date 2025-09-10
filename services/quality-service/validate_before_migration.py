@@ -204,7 +204,7 @@ def check_relationships(cursor) -> Dict:
                 COUNT(narm.outlet_name) as articles_with_reputation,
                 COUNT(*) - COUNT(narm.outlet_name) as articles_without_reputation
             FROM articles a
-            LEFT JOIN news_agency_reputation_metrics narm ON a.outlet = narm.outlet_name
+            LEFT JOIN news_agency_reputation_metrics narm ON a.outlet_name = narm.outlet_name
         """)
         
         total, with_rep, without_rep = cursor.fetchone()
@@ -231,7 +231,7 @@ def check_relationships(cursor) -> Dict:
                 COUNT(narm.outlet_name) as feeds_with_reputation,
                 COUNT(rf.news_agency_id) as feeds_with_agency_id
             FROM rss_feeds rf
-            LEFT JOIN news_agency_reputation_metrics narm ON rf.outlet = narm.outlet_name
+            LEFT JOIN news_agency_reputation_metrics narm ON rf.outlet_name = narm.outlet_name
         """)
         
         total_feeds, feeds_with_rep, feeds_with_id = cursor.fetchone()

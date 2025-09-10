@@ -74,7 +74,7 @@ class RSSAgencyValidator:
                 FROM rss_feeds rf
                 LEFT JOIN news_agency_reputation_metrics narm ON rf.news_agency_id = narm.id
                 WHERE rf.active = true
-                ORDER BY rf.outlet
+                ORDER BY rf.outlet_name
                 """
                 
                 cursor.execute(query)

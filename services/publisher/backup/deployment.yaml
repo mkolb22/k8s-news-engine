@@ -1,0 +1,31 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: publisher-lighttpd
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: publisher-lighttpd
+  template:
+    metadata:
+      labels:
+        app: publisher-lighttpd
+    spec:
+      containers:
+      - name: lighttpd
+        image: k8s-news-engine/publisher:v2.0.3
+        imagePullPolicy: Never
+        ports:
+        - containerPort: 8080
+        volumeMounts:
+        - name: lighttpd-config
+          mountPath: /etc/lighttpd
+          readOnly: true
+      volumes:
+      - name: lighttpd-config
+        configMap:
+          name: publisher-config
+          items:
+          - key: lighttpd.conf
+            path: lighttpd.conf

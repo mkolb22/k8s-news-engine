@@ -1,0 +1,140 @@
+---
+apiVersion: v1
+kind: ServiceMonitor
+metadata:
+  name: publisher-monitoring
+  namespace: news-engine
+  labels:
+    app: publisher
+    component: webserver
+    part-of: news-engine
+spec:
+  selector:
+    matchLabels:
+      app: publisher
+  endpoints:
+  - port: http
+    path: /cgi-bin/health.py
+    interval: 30s
+    honorLabels: true
+
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: publisher-timezone-alerts
+  namespace: news-engine
+  labels:
+    app: publisher
+    component: webserver
+    part-of: news-engine
+spec:
+  groups:
+  - name: publisher.timezone
+    rules:
+    - alert: PublisherTimezoneFailure
+      expr: up{job="publisher"} == 0
+      for: 1m
+      labels:
+        severity: critical
+        service: publisher
+        component: timezone
+      annotations:
+        summary: "Publisher service timezone configuration failing"
+        description: "The publisher service health check is failing, likely due to timezone configuration issues"
+        runbook_url: "https://wiki.example.com/runbooks/publisher-timezone"
+        
+    - alert: PublisherHealthCheckFailure  
+      expr: probe_success{job="publisher-health"} == 0
+      for: 2m
+      labels:
+        severity: warning
+        service: publisher
+        component: health
+      annotations:
+        summary: "Publisher health check endpoint failing"
+        description: "The publisher health check endpoint has been failing for over 2 minutes"
+        
+    - alert: PublisherCGIErrors
+      expr: increase(lighttpd_requests_total{status=~"5.."}[5m]) > 5
+      for: 1m
+      labels:
+        severity: warning
+        service: publisher
+        component: cgi
+      annotations:
+        summary: "High number of CGI script errors in publisher"
+        description: "Publisher is experiencing {{ $value }} CGI errors in the last 5 minutes"
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: publisher-monitoring-config
+  namespace: news-engine
+  labels:
+    app: publisher
+    component: monitoring
+data:
+  timezone-check.sh: |
+    #!/bin/bash
+    # Script to validate timezone configuration in publisher pods
+    
+    echo "Checking publisher timezone configuration..."
+    
+    # Get all publisher pods
+    PODS=$(kubectl get pods -n news-engine -l app=publisher -o jsonpath='{.items[*].metadata.name}')
+    
+    for POD in $PODS; do
+        echo "Checking pod: $POD"
+        
+        # Check TZ environment variable
+        TZ_VAR=$(kubectl exec -n news-engine $POD -- printenv TZ 2>/dev/null || echo "Not set")
+        echo "  TZ environment variable: $TZ_VAR"
+        
+        # Check system timezone
+        SYSTEM_TZ=$(kubectl exec -n news-engine $POD -- date +%Z 2>/dev/null || echo "Unknown")
+        echo "  System timezone: $SYSTEM_TZ"
+        
+        # Check health endpoint
+        HEALTH_CHECK=$(kubectl exec -n news-engine $POD -- curl -s http://localhost:8080/cgi-bin/health.py || echo "Failed")
+        echo "  Health check response: $HEALTH_CHECK"
+        
+        echo "---"
+    done
+    
+  alert-remediation.md: |
+    # Publisher Timezone Alert Remediation
+    
+    ## PublisherTimezoneFailure
+    
+    **Cause**: Publisher service is failing to start or respond to health checks due to timezone configuration issues.
+    
+    **Immediate Actions**:
+    1. Check pod logs: `kubectl logs -n news-engine deployment/publisher`
+    2. Verify timezone environment variables are set correctly
+    3. Check if tzdata package is installed in container
+    4. Restart deployment if necessary: `kubectl rollout restart deployment/publisher -n news-engine`
+    
+    **Root Cause Analysis**:
+    - Verify Dockerfile includes `tzdata` package installation
+    - Check deployment.yaml has TZ and PGTZ environment variables set to UTC
+    - Validate database connection timezone configuration
+    
+    ## PublisherHealthCheckFailure
+    
+    **Cause**: Health check endpoint is failing, indicating timezone or database connectivity issues.
+    
+    **Debugging Steps**:
+    1. Access health endpoint directly: `kubectl exec -n news-engine deployment/publisher -- curl http://localhost:8080/cgi-bin/health.py`
+    2. Check database connectivity from pod
+    3. Verify Python timezone libraries are working correctly
+    
+    ## PublisherCGIErrors
+    
+    **Cause**: High number of CGI script errors, potentially due to timezone arithmetic failures.
+    
+    **Immediate Actions**:
+    1. Check lighttpd error logs
+    2. Verify events.py script is handling timezones correctly
+    3. Monitor for "can't subtract offset-naive and offset-aware datetimes" errors

@@ -11,8 +11,8 @@ data:
   lighttpd.conf: |
     server.document-root  = "/var/www/htdocs"
     server.port           = 8080
-    server.username       = "publisher"
-    server.groupname      = "publisher"
+    server.username       = "nobody"
+    server.groupname      = "nogroup"
     server.modules        = ("mod_accesslog", "mod_cgi", "mod_setenv", "mod_alias")
 
     # Security headers
@@ -46,17 +46,3 @@ data:
       ".json" => "application/json",
       ".txt"  => "text/plain"
     )
-  
-  index.html: |
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <title>K8s News Engine</title>
-        <meta charset="utf-8">
-        <meta http-equiv="refresh" content="0; url=/cgi-bin/index.py">
-    </head>
-    <body>
-        <h1>Redirecting to News Engine Dashboard...</h1>
-        <p><a href="/cgi-bin/index.py">Click here if not redirected automatically</a></p>
-    </body>
-    </html>

@@ -66,6 +66,18 @@ The service expects these tables to exist:
 5. **Corroboration**: Verified vs contested claims ratio
 6. **Correction risk**: Based on outlet historical correction rates
 
+## Directory Structure Guidelines
+
+### Working Directories
+- **`./services/`**: Active service development and Kubernetes manifests
+- All Kubernetes manifests are located in `./services/*/k8s/` directories
+- Service source code and configurations are in respective service directories
+
+### Archive Directory
+- **`./archive/`**: Contains historical deployment configurations and deprecated files
+- **DO NOT** work in or modify the `./archive/` directory unless explicitly requested
+- Archive directory is preserved for reference only and should remain untouched
+
 ## Configuration
 
 - Database connection: Set `DATABASE_URL` environment variable

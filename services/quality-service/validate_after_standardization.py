@@ -201,14 +201,14 @@ def test_query_consistency(cursor) -> Dict:
     try:
         query = """
             SELECT 
-                a.outlet as article_outlet,
+                a.outlet_name as article_outlet,
                 narm.outlet_name as reputation_outlet,
                 narm.final_reputation_score,
                 COUNT(a.id) as article_count
             FROM articles a
-            LEFT JOIN news_agency_reputation_metrics narm ON a.outlet = narm.outlet_name
+            LEFT JOIN news_agency_reputation_metrics narm ON a.outlet_name = narm.outlet_name
             WHERE narm.final_reputation_score IS NOT NULL
-            GROUP BY a.outlet, narm.outlet_name, narm.final_reputation_score
+            GROUP BY a.outlet_name, narm.outlet_name, narm.final_reputation_score
             ORDER BY narm.final_reputation_score DESC
             LIMIT 10
         """
@@ -244,12 +244,12 @@ def test_query_consistency(cursor) -> Dict:
     try:
         query = """
             SELECT 
-                rf.outlet as rss_outlet,
+                rf.outlet_name as rss_outlet,
                 narm.outlet_name as mapped_agency,
                 narm.final_reputation_score,
                 rf.active
             FROM rss_feeds rf
-            LEFT JOIN news_agency_reputation_metrics narm ON rf.outlet = narm.outlet_name
+            LEFT JOIN news_agency_reputation_metrics narm ON rf.outlet_name = narm.outlet_name
             ORDER BY narm.final_reputation_score DESC NULLS LAST
         """
         

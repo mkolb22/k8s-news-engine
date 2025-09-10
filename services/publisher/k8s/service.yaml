@@ -1,11 +1,18 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: publisher-svc
+  name: publisher
+  namespace: news-engine
+  labels:
+    app: publisher
+    component: webserver
+    part-of: news-engine
 spec:
-  selector:
-    app: publisher-lighttpd
+  type: LoadBalancer
   ports:
   - port: 80
     targetPort: 8080
+    protocol: TCP
     name: http
+  selector:
+    app: publisher
