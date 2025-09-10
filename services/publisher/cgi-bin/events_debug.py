@@ -49,7 +49,7 @@ def main():
         
         # Get recent articles
         cur.execute("""
-            SELECT id, url, title, outlet, published_at, text
+            SELECT id, url, title, outlet_name, published_at, text
             FROM articles 
             WHERE published_at > NOW() - INTERVAL '24 hours'
                 AND text IS NOT NULL 

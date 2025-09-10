@@ -11,7 +11,8 @@ spec:
           restartPolicy: OnFailure
           containers:
           - name: eqis
-            image: yourrepo/eqis-analytics:latest
+            image: k8s-news-engine/analytics:v2.0.0
+            imagePullPolicy: Never
             env:
             - name: DATABASE_URL
               valueFrom:

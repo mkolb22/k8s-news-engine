@@ -65,7 +65,7 @@ class RSSAgencyValidator:
                 query = """
                 SELECT 
                     rf.id,
-                    rf.outlet,
+                    rf.outlet_name,
                     rf.url,
                     rf.active,
                     rf.news_agency_id,
@@ -107,7 +107,7 @@ class RSSAgencyValidator:
             status = "NO_AGENCY_MAPPING"
             recommendations = [
                 "Add mapping in map_outlet_to_agency_name() function",
-                f"Consider adding '{feed['outlet']}' to news_agency_reputation_metrics table",
+                f"Consider adding '{feed['outlet_name']}' to news_agency_reputation_metrics table",
                 "RSS feed will use fallback outlet_authority scoring"
             ]
         elif reputation_score is None or reputation_score == 0:
@@ -123,7 +123,7 @@ class RSSAgencyValidator:
             
         return RSSFeedValidation(
             rss_feed_id=feed['id'],
-            outlet_name=feed['outlet'],
+            outlet_name=feed['outlet_name'],
             url=feed['url'],
             has_agency_mapping=has_mapping,
             agency_name=agency_name,
@@ -246,13 +246,13 @@ class RSSAgencyValidator:
                 # Check if RSS feed has agency mapping and score
                 query = """
                 SELECT 
-                    rf.outlet,
+                    rf.outlet_name,
                     rf.news_agency_id,
                     narm.outlet_name as agency_name,
                     narm.final_reputation_score
                 FROM rss_feeds rf
                 LEFT JOIN news_agency_reputation_metrics narm ON rf.news_agency_id = narm.id
-                WHERE LOWER(rf.outlet) = LOWER(%s) AND rf.active = true
+                WHERE LOWER(rf.outlet_name) = LOWER(%s) AND rf.active = true
                 """
                 
                 cursor.execute(query, [outlet_name])

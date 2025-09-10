@@ -14,13 +14,18 @@ spec:
     spec:
       containers:
       - name: lighttpd
-        image: publisher-lighttpd:latest
-        imagePullPolicy: Always
+        image: k8s-news-engine/publisher:v2.0.3
+        imagePullPolicy: Never
         ports:
         - containerPort: 8080
         volumeMounts:
-        - name: www
-          mountPath: /var/www/htdocs
+        - name: lighttpd-config
+          mountPath: /etc/lighttpd
+          readOnly: true
       volumes:
-      - name: www
-        emptyDir: {}
+      - name: lighttpd-config
+        configMap:
+          name: publisher-config
+          items:
+          - key: lighttpd.conf
+            path: lighttpd.conf

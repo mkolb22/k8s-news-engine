@@ -39,7 +39,7 @@ def ensure_tables(engine):
 
 def fetch_event_article_data(engine, event_id):
     sql = '''
-    SELECT ar.id, ar.url, ar.outlet, ar.title, ar.published_at, ar.text
+    SELECT ar.id, ar.url, ar.outlet_name, ar.title, ar.published_at, ar.text
     FROM articles ar
     JOIN event_articles ea ON ea.article_id = ar.id
     WHERE ea.event_id = :eid
@@ -100,7 +100,7 @@ def score_coverage(articles, outlet_profiles, params):
         return 0.0, 0
     groups = set()
     for r in articles:
-        dom = (r["outlet"] or "").lower()
+        dom = (r["outlet_name"] or "").lower()
         grp = outlet_profiles.get(dom, {}).get("group") or default_group(dom)
         groups.add(grp)
     coverage = len(groups)
@@ -138,14 +138,14 @@ def score_best_source(articles, claims, outlet_profiles):
     per = defaultdict(lambda: {"verified":0, "total":0, "primacy":0.0})
     art_by_id = {r["id"]: r for r in articles}
     for c in claims:
-        o = (art_by_id.get(c["article_id"], {}).get("outlet") or "").lower()
+        o = (art_by_id.get(c["article_id"], {}).get("outlet_name") or "").lower()
         if not o: 
             continue
         per[o]["total"] += 1
         if (c["verified_state"] or "").lower() == "verified":
             per[o]["verified"] += 1
     for r in articles:
-        dom = (r["outlet"] or "").lower()
+        dom = (r["outlet_name"] or "").lower()
         if r["published_at"] and pd.Timestamp(r["published_at"]) <= earliest_cut:
             per[dom]["primacy"] += 1
 
@@ -155,7 +155,7 @@ def score_best_source(articles, claims, outlet_profiles):
         total = max(1, stats["total"])
         verified_share = stats["verified"]/total
         # Normalize primacy by number of articles from that outlet
-        outlet_articles = sum(1 for r in articles if (r["outlet"] or "").lower()==dom)
+        outlet_articles = sum(1 for r in articles if (r["outlet_name"] or "").lower()==dom)
         primacy = (stats["primacy"]/max(1,outlet_articles))
         s = 0.6*aw + 0.2*primacy + 0.2*verified_share
         if s > best_score:
@@ -177,7 +177,7 @@ def score_corroboration(claims):
 def score_correction_risk(articles, outlet_profiles, params):
     if not articles:
         return 0.0, 0.0
-    counts = Counter((r["outlet"] or "").lower() for r in articles)
+    counts = Counter((r["outlet_name"] or "").lower() for r in articles)
     total = sum(counts.values())
     risk = 0.0
     for dom, n in counts.items():

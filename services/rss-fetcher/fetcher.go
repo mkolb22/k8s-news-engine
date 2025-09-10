@@ -27,7 +27,7 @@ type RSSFetcher struct {
 type RSSFeed struct {
 	ID                   int       `json:"id"`
 	URL                  string    `json:"url"`
-	Outlet               string    `json:"outlet"`
+	OutletName           string    `json:"outlet_name"`
 	LastFetched          *time.Time `json:"last_fetched"`
 	FetchIntervalMinutes *int      `json:"fetch_interval_minutes"`
 }
@@ -35,7 +35,7 @@ type RSSFeed struct {
 type Article struct {
 	ID          int       `json:"id"`
 	URL         string    `json:"url"`
-	Outlet      string    `json:"outlet"`
+	OutletName  string    `json:"outlet_name"`
 	Title       string    `json:"title"`
 	PublishedAt *time.Time `json:"published_at"`
 	Author      *string   `json:"author"`
@@ -48,7 +48,7 @@ func NewRSSFetcher() (*RSSFetcher, error) {
 	// Database connection
 	dbURL := os.Getenv("DATABASE_URL")
 	if dbURL == "" {
-		dbURL = "postgresql://truth:truth@localhost:5432/truthdb"
+		dbURL = "postgresql://appuser:newsengine2024@localhost:5432/newsdb"
 	}
 
 	db, err := sql.Open("postgres", dbURL)
@@ -93,7 +93,7 @@ func (f *RSSFetcher) Close() {
 
 func (f *RSSFetcher) GetActiveFeeds() ([]RSSFeed, error) {
 	query := `
-		SELECT id, url, outlet, last_fetched, fetch_interval_minutes 
+		SELECT id, url, outlet_name, last_fetched, fetch_interval_minutes 
 		FROM rss_feeds 
 		WHERE active = TRUE
 	`
@@ -110,7 +110,7 @@ func (f *RSSFetcher) GetActiveFeeds() ([]RSSFeed, error) {
 		err := rows.Scan(
 			&feed.ID,
 			&feed.URL,
-			&feed.Outlet,
+			&feed.OutletName,
 			&feed.LastFetched,
 			&feed.FetchIntervalMinutes,
 		)
@@ -276,7 +276,7 @@ func (f *RSSFetcher) SaveArticle(feedID int, outlet string, item *gofeed.Item) (
 
 	// Insert article
 	query := `
-		INSERT INTO articles (url, outlet, title, published_at, author, text, raw_html, rss_feed_id)
+		INSERT INTO articles (url, outlet_name, title, published_at, author, text, raw_html, rss_feed_id)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 		ON CONFLICT (url) DO UPDATE SET
 			text = COALESCE(EXCLUDED.text, articles.text),
@@ -391,7 +391,7 @@ func (f *RSSFetcher) UpdateFeedTimestamp(feedID int) error {
 
 func (f *RSSFetcher) ProcessFeed(feed RSSFeed) error {
 	f.log.WithFields(logrus.Fields{
-		"outlet": feed.Outlet,
+		"outlet": feed.OutletName,
 		"url":    feed.URL,
 	}).Info("Processing RSS feed")
 
@@ -402,7 +402,7 @@ func (f *RSSFetcher) ProcessFeed(feed RSSFeed) error {
 	}
 
 	if len(parsedFeed.Items) == 0 {
-		f.log.WithField("outlet", feed.Outlet).Warn("No items found in feed")
+		f.log.WithField("outlet", feed.OutletName).Warn("No items found in feed")
 		return nil
 	}
 
@@ -414,7 +414,7 @@ func (f *RSSFetcher) ProcessFeed(feed RSSFeed) error {
 
 	newArticles := 0
 	for _, item := range itemsToProcess {
-		articleID, err := f.SaveArticle(feed.ID, feed.Outlet, item)
+		articleID, err := f.SaveArticle(feed.ID, feed.OutletName, item)
 		if err != nil {
 			f.log.WithError(err).WithField("url", item.Link).Error("Failed to save article")
 			continue
@@ -439,7 +439,7 @@ func (f *RSSFetcher) ProcessFeed(feed RSSFeed) error {
 	}
 
 	f.log.WithFields(logrus.Fields{
-		"outlet":       feed.Outlet,
+		"outlet":       feed.OutletName,
 		"total_items":  len(itemsToProcess),
 		"new_articles": newArticles,
 	}).Info("Completed processing feed")
@@ -448,22 +448,7 @@ func (f *RSSFetcher) ProcessFeed(feed RSSFeed) error {
 }
 
 func (f *RSSFetcher) RunOnce() error {
-	// Load feed configuration from ConfigMap
-	configPath := os.Getenv("FEEDS_CONFIG_PATH")
-	if configPath == "" {
-		configPath = "/config/feeds.yaml"
-	}
-	
-	config, err := LoadFeedsConfig(configPath)
-	if err != nil {
-		f.log.WithError(err).Warn("Failed to load ConfigMap feeds, using database feeds")
-	} else {
-		// Sync ConfigMap feeds with database
-		if err := f.SyncFeedsWithDatabase(config); err != nil {
-			f.log.WithError(err).Error("Failed to sync feeds with database")
-		}
-	}
-
+	// Get active feeds directly from database
 	feeds, err := f.GetActiveFeeds()
 	if err != nil {
 		return fmt.Errorf("failed to get active feeds: %w", err)
@@ -474,12 +459,12 @@ func (f *RSSFetcher) RunOnce() error {
 	for _, feed := range feeds {
 		if f.ShouldFetchFeed(feed) {
 			if err := f.ProcessFeed(feed); err != nil {
-				f.log.WithError(err).WithField("outlet", feed.Outlet).Error("Failed to process feed")
+				f.log.WithError(err).WithField("outlet", feed.OutletName).Error("Failed to process feed")
 			}
 			// Rate limiting between feeds
 			time.Sleep(2 * time.Second)
 		} else {
-			f.log.WithField("outlet", feed.Outlet).Debug("Skipping feed (not due for fetch)")
+			f.log.WithField("outlet", feed.OutletName).Debug("Skipping feed (not due for fetch)")
 		}
 	}
 

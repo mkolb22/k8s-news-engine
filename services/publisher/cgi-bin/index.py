@@ -23,7 +23,7 @@ def main():
         
         # Get recent articles using correct column names
         cur.execute("""
-            SELECT url, title, published_at, text, outlet
+            SELECT url, title, published_at, text, outlet_name
             FROM articles 
             ORDER BY published_at DESC 
             LIMIT 50

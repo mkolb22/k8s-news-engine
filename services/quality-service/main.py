@@ -123,7 +123,7 @@ class QualityService:
             # Get article content
             text = article.get('text', '')
             title = article.get('title', '')
-            outlet = article.get('outlet', '')
+            outlet = article.get('outlet_name', article.get('outlet', ''))
             
             # Get writing quality scores (0-100)
             writing_scores = self.writing_analyzer.analyze_article(text, title)
@@ -204,7 +204,7 @@ class QualityService:
         except Exception as e:
             logger.error(f"Error in comprehensive quality analysis for article {article.get('id')}: {e}")
             # Fallback to simple scoring
-            outlet = article.get('outlet', '')
+            outlet = article.get('outlet_name', article.get('outlet', ''))
             return min(self.authority_outlets.get(outlet, 15) + 35, 100)  # Simple fallback
 
     def extract_key_entities(self, text: str) -> Set[str]:
@@ -399,7 +399,7 @@ class QualityService:
             # Extract information from primary article
             title1 = (article1.get('title', '') or '').lower()
             text1 = (article1.get('text', '') or '')[:2000]
-            outlet1 = article1.get('outlet', '')
+            outlet1 = article1.get('outlet_name', article1.get('outlet', ''))
             pub_time1 = article1.get('published_at')
             entities1 = self.extract_key_entities(text1)
             
@@ -417,7 +417,7 @@ class QualityService:
                     continue
                 
                 # Don't group articles from same outlet
-                outlet2 = article2.get('outlet', '')
+                outlet2 = article2.get('outlet_name', article2.get('outlet', ''))
                 if outlet2 == outlet1:
                     continue
                 
@@ -480,7 +480,7 @@ class QualityService:
             
             # Get articles that need processing (last 72 hours, no quality score yet)
             cur.execute("""
-                SELECT id, url, title, outlet, published_at, text
+                SELECT id, url, title, outlet_name, published_at, text
                 FROM articles 
                 WHERE published_at > NOW() - INTERVAL '72 hours'
                     AND text IS NOT NULL 

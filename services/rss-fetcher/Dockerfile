@@ -52,7 +52,7 @@ EXPOSE 8080
 
 # Set default environment variables
 ENV TZ=UTC
-ENV DATABASE_URL=postgresql://truth:truth@localhost:5432/truthdb
+ENV DATABASE_URL=postgresql://appuser:newsengine2024@localhost:5432/newsdb
 ENV FETCH_INTERVAL=300
 
 # Health check

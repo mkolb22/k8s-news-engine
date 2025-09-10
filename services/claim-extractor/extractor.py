@@ -13,7 +13,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-DB_URL = os.getenv("DATABASE_URL", "postgresql://truth:truth@localhost:5432/truthdb")
+DB_URL = os.getenv("DATABASE_URL", "postgresql://appuser:newsengine2024@localhost:5432/newsdb")
 BATCH_SIZE = int(os.getenv("BATCH_SIZE", "10"))
 
 class ClaimExtractor:

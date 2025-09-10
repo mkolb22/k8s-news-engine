@@ -1,0 +1,91 @@
+{
+  "timestamp": "2025-09-09T23:02:09.172365",
+  "standardization_approach": "code-first",
+  "database_url": "localhost:5432/newsdb?sslmode=disable",
+  "compatibility_tests": {
+    "articles_reputation_join": {
+      "total_articles": 644,
+      "articles_with_reputation": 643,
+      "coverage_percentage": 99.84,
+      "query_used": "a.outlet = narm.outlet_name",
+      "success": true
+    },
+    "rss_reputation_join": {
+      "total_feeds": 23,
+      "feeds_with_reputation": 14,
+      "coverage_percentage": 60.87,
+      "query_used": "rf.outlet = narm.outlet_name",
+      "success": true
+    }
+  },
+  "data_relationships": {
+    "outlet_consistency": {
+      "article_outlets_count": 17,
+      "rss_outlets_count": 18,
+      "reputation_outlets_count": 22,
+      "article_rss_overlap": 12,
+      "article_reputation_overlap": 16,
+      "rss_reputation_overlap": 11,
+      "article_outlets": [
+        "ABC News",
+        "Al Jazeera",
+        "BBC News",
+        "CBS News",
+        "CNN"
+      ],
+      "reputation_outlets": [
+        "ABC News",
+        "Al Jazeera",
+        "Associated Press",
+        "BBC News",
+        "CBS News"
+      ]
+    }
+  },
+  "query_consistency": {
+    "complex_join_query": {
+      "success": true,
+      "results_count": 10,
+      "sample_results": [
+        {
+          "article_outlet": "Deutsche Welle",
+          "reputation_outlet": "Deutsche Welle",
+          "reputation_score": 99.0,
+          "article_count": 51
+        },
+        {
+          "article_outlet": "ABC News",
+          "reputation_outlet": "ABC News",
+          "reputation_score": 97.0,
+          "article_count": 37
+        },
+        {
+          "article_outlet": "CBS News",
+          "reputation_outlet": "CBS News",
+          "reputation_score": 97.0,
+          "article_count": 40
+        },
+        {
+          "article_outlet": "NBC News",
+          "reputation_outlet": "NBC News",
+          "reputation_score": 97.0,
+          "article_count": 32
+        },
+        {
+          "article_outlet": "NPR",
+          "reputation_outlet": "NPR",
+          "reputation_score": 97.0,
+          "article_count": 34
+        }
+      ]
+    },
+    "rss_validation_query": {
+      "success": true,
+      "total_feeds": 23,
+      "mapped_feeds": 14,
+      "active_feeds": 14,
+      "mapping_percentage": 60.87
+    }
+  },
+  "validation_status": "COMPLETED"
+}

@@ -199,7 +199,7 @@ class ReputationAnalyzer:
             with self.db_connection.cursor() as cursor:
                 query = """
                 SELECT authority FROM outlet_authority 
-                WHERE LOWER(outlet) = LOWER(%s)
+                WHERE LOWER(outlet_name) = LOWER(%s)
                 """
                 cursor.execute(query, [outlet])
                 result = cursor.fetchone()
@@ -257,10 +257,10 @@ class ReputationAnalyzer:
                 
                 query = """
                 INSERT INTO outlet_reputation_scores 
-                (outlet, reputation_score, reputation_metrics_id, total_major_awards, 
+                (outlet_name, reputation_score, reputation_metrics_id, total_major_awards, 
                  has_fact_checking, press_freedom_tier, last_updated)
                 VALUES (%s, %s, %s, %s, %s, %s, NOW())
-                ON CONFLICT (outlet) 
+                ON CONFLICT (outlet_name) 
                 DO UPDATE SET
                     reputation_score = EXCLUDED.reputation_score,
                     reputation_metrics_id = EXCLUDED.reputation_metrics_id,
@@ -316,7 +316,7 @@ class ReputationAnalyzer:
             with self.db_connection.cursor() as cursor:
                 query = """
                 SELECT reputation_score FROM outlet_reputation_scores 
-                WHERE LOWER(outlet) = LOWER(%s)
+                WHERE LOWER(outlet_name) = LOWER(%s)
                 """
                 cursor.execute(query, [outlet])
                 result = cursor.fetchone()

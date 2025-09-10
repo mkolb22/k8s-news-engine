@@ -20,21 +20,15 @@ spec:
     spec:
       containers:
       - name: fetcher
-        image: k8s-news-engine/rss-fetcher:latest
-        imagePullPolicy: Always
+        image: k8s-news-engine/rss-fetcher:v2.0.1
+        imagePullPolicy: Never
         env:
         - name: DATABASE_URL
-          value: "postgresql://appuser:secure-app-password-2024@postgresql.postgresql.svc.cluster.local:5432/truthdb"
+          value: "postgresql://appuser:newsengine2024@postgresql.news-engine.svc.cluster.local:5432/newsdb?sslmode=disable"
         - name: FETCH_INTERVAL
           value: "300"  # 5 minutes
         - name: TZ
           value: "UTC"
-        - name: FEEDS_CONFIG_PATH
-          value: "/config/feeds.yaml"
-        volumeMounts:
-        - name: feeds-config
-          mountPath: /config
-          readOnly: true
         resources:
           requests:
             memory: "64Mi"    # Reduced for Go binary
@@ -70,11 +64,4 @@ spec:
           capabilities:
             drop:
             - ALL
-      volumes:
-      - name: feeds-config
-        configMap:
-          name: rss-feeds-config
-          items:
-          - key: feeds.yaml
-            path: feeds.yaml
       restartPolicy: Always

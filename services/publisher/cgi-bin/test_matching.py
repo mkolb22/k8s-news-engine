@@ -88,7 +88,7 @@ cur = conn.cursor()
 
 # Get recent articles
 cur.execute("""
-    SELECT id, url, title, outlet, text
+    SELECT id, url, title, outlet_name, text
     FROM articles 
     WHERE published_at > NOW() - INTERVAL '24 hours'
         AND text IS NOT NULL 
