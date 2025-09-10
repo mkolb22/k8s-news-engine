@@ -1,0 +1,107 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: quality-service
+  namespace: news-engine
+  labels:
+    app: quality-service
+    component: compute
+    part-of: news-engine
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: quality-service
+  template:
+    metadata:
+      labels:
+        app: quality-service
+        component: compute
+        part-of: news-engine
+    spec:
+      # serviceAccountName: news-engine-sa
+      containers:
+      - name: quality-service
+        image: k8s-news-engine-quality-service:v1.1.0
+        imagePullPolicy: Never
+        env:
+        - name: DATABASE_URL
+          value: "postgresql://appuser:newsengine2024@postgresql.news-engine.svc.cluster.local:5432/newsdb?sslmode=disable"
+        - name: TZ
+          value: "UTC"
+        - name: PGTZ
+          value: "UTC"
+        - name: BATCH_SIZE
+          value: "50"
+        - name: SLEEP_INTERVAL
+          value: "60"
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        livenessProbe:
+          exec:
+            command:
+            - python3
+            - -c
+            - |
+              import psycopg2
+              import os
+              try:
+                conn = psycopg2.connect(os.environ['DATABASE_URL'])
+                conn.close()
+                exit(0)
+              except:
+                exit(1)
+          initialDelaySeconds: 30
+          periodSeconds: 60
+          timeoutSeconds: 10
+          failureThreshold: 3
+        readinessProbe:
+          exec:
+            command:
+            - python3
+            - -c
+            - |
+              import psycopg2
+              import os
+              try:
+                conn = psycopg2.connect(os.environ['DATABASE_URL'])
+                conn.close()
+                exit(0)
+              except:
+                exit(1)
+          initialDelaySeconds: 5
+          periodSeconds: 30
+          timeoutSeconds: 5
+          failureThreshold: 3
+        volumeMounts:
+        - name: quality-logs
+          mountPath: /var/log
+      volumes:
+      - name: quality-logs
+        emptyDir: {}
+      restartPolicy: Always
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: quality-service
+  namespace: news-engine
+  labels:
+    app: quality-service
+    component: compute
+    part-of: news-engine
+spec:
+  selector:
+    app: quality-service
+  ports:
+  - name: health
+    port: 8080
+    targetPort: 8080
+    protocol: TCP
+  type: ClusterIP
