@@ -1,0 +1,308 @@
+{
+  "timestamp": "2025-09-09T22:44:19.665171",
+  "database_url": "localhost:5432/newsdb?sslmode=disable",
+  "table_analysis": {
+    "articles": {
+      "outlet_columns": [
+        {
+          "name": "outlet",
+          "type": "text",
+          "nullable": "NO",
+          "default": null
+        }
+      ],
+      "row_count": 642,
+      "exists": true
+    },
+    "rss_feeds": {
+      "outlet_columns": [
+        {
+          "name": "outlet",
+          "type": "text",
+          "nullable": "NO",
+          "default": null
+        }
+      ],
+      "row_count": 23,
+      "exists": true
+    },
+    "outlet_reputation_scores": {
+      "outlet_columns": [
+        {
+          "name": "outlet",
+          "type": "character varying",
+          "nullable": "NO",
+          "default": null
+        }
+      ],
+      "row_count": 21,
+      "exists": true
+    },
+    "news_agency_reputation_metrics": {
+      "outlet_columns": [
+        {
+          "name": "outlet_name",
+          "type": "character varying",
+          "nullable": "NO",
+          "default": null
+        }
+      ],
+      "row_count": 22,
+      "exists": true
+    },
+    "outlet_authority": {
+      "outlet_columns": [
+        {
+          "name": "outlet_name",
+          "type": "character varying",
+          "nullable": "NO",
+          "default": null
+        }
+      ],
+      "row_count": 21,
+      "exists": true
+    }
+  },
+  "data_integrity": {
+    "articles": {
+      "total_rows": 642,
+      "unique_outlets": 16,
+      "top_outlets": [
+        {
+          "outlet": "Al Jazeera",
+          "count": 94
+        },
+        {
+          "outlet": "BBC News",
+          "count": 86
+        },
+        {
+          "outlet": "PBS NewsHour",
+          "count": 53
+        },
+        {
+          "outlet": "Deutsche Welle",
+          "count": 51
+        },
+        {
+          "outlet": "The Guardian",
+          "count": 46
+        },
+        {
+          "outlet": "Zerohedge",
+          "count": 41
+        },
+        {
+          "outlet": "CBS News",
+          "count": 40
+        },
+        {
+          "outlet": "ABC News",
+          "count": 37
+        },
+        {
+          "outlet": "NPR",
+          "count": 34
+        },
+        {
+          "outlet": "NBC News",
+          "count": 32
+        }
+      ],
+      "null_outlets": 0
+    },
+    "rss_feeds": {
+      "total_rows": 23,
+      "unique_outlets": 18,
+      "outlet_distribution": [
+        {
+          "outlet": "CBS News",
+          "count": 2
+        },
+        {
+          "outlet": "Reuters Top News",
+          "count": 2
+        },
+        {
+          "outlet": "CNN Top Stories",
+          "count": 2
+        },
+        {
+          "outlet": "Politico",
+          "count": 2
+        },
+        {
+          "outlet": "NBC News",
+          "count": 2
+        },
+        {
+          "outlet": "Al Jazeera",
+          "count": 1
+        },
+        {
+          "outlet": "PBS NewsHour",
+          "count": 1
+        },
+        {
+          "outlet": "NPR News",
+          "count": 1
+        },
+        {
+          "outlet": "Democracy Now",
+          "count": 1
+        },
+        {
+          "outlet": "BBC News",
+          "count": 1
+        },
+        {
+          "outlet": "BBC World",
+          "count": 1
+        },
+        {
+          "outlet": "Deutsche Welle",
+          "count": 1
+        },
+        {
+          "outlet": "TechCrunch",
+          "count": 1
+        },
+        {
+          "outlet": "ABC News",
+          "count": 1
+        },
+        {
+          "outlet": "Zerohedge.com",
+          "count": 1
+        },
+        {
+          "outlet": "VOA News",
+          "count": 1
+        },
+        {
+          "outlet": "Sky News World",
+          "count": 1
+        },
+        {
+          "outlet": "The Guardian World",
+          "count": 1
+        }
+      ],
+      "null_outlets": 0
+    },
+    "news_agency_reputation_metrics": {
+      "total_rows": 22,
+      "unique_outlet_names": 22,
+      "agency_scores": [
+        {
+          "outlet_name": "Deutsche Welle",
+          "score": 99.0
+        },
+        {
+          "outlet_name": "NBC News",
+          "score": 97.0
+        },
+        {
+          "outlet_name": "PBS NewsHour",
+          "score": 97.0
+        },
+        {
+          "outlet_name": "ProPublica",
+          "score": 97.0
+        },
+        {
+          "outlet_name": "The New York Times",
+          "score": 97.0
+        },
+        {
+          "outlet_name": "Associated Press",
+          "score": 97.0
+        },
+        {
+          "outlet_name": "NPR",
+          "score": 97.0
+        },
+        {
+          "outlet_name": "CBS News",
+          "score": 97.0
+        },
+        {
+          "outlet_name": "ABC News",
+          "score": 97.0
+        },
+        {
+          "outlet_name": "The Guardian",
+          "score": 95.0
+        },
+        {
+          "outlet_name": "BBC News",
+          "score": 95.0
+        },
+        {
+          "outlet_name": "Reuters",
+          "score": 95.0
+        },
+        {
+          "outlet_name": "Politico",
+          "score": 94.0
+        },
+        {
+          "outlet_name": "VOA News",
+          "score": 94.0
+        },
+        {
+          "outlet_name": "CNN",
+          "score": 93.0
+        },
+        {
+          "outlet_name": "Sky News",
+          "score": 92.0
+        },
+        {
+          "outlet_name": "Democracy Now",
+          "score": 88.0
+        },
+        {
+          "outlet_name": "Al Jazeera",
+          "score": 86.0
+        },
+        {
+          "outlet_name": "TechCrunch",
+          "score": 54.0
+        },
+        {
+          "outlet_name": "Fox News",
+          "score": 49.0
+        },
+        {
+          "outlet_name": "Zerohedge",
+          "score": 10.0
+        },
+        {
+          "outlet_name": "The Washington Post",
+          "score": 0.0
+        }
+      ],
+      "null_outlet_names": 0
+    }
+  },
+  "cross_table_relationships": {
+    "articles_to_reputation": {
+      "total_articles": 642,
+      "articles_with_reputation": 642,
+      "articles_without_reputation": 0,
+      "coverage_percentage": 100.0
+    },
+    "rss_feeds_to_reputation": {
+      "total_feeds": 23,
+      "feeds_with_reputation": 14,
+      "feeds_with_agency_id": 21,
+      "coverage_percentage": 60.87
+    },
+    "outlet_authority": {
+      "total_entries": 21,
+      "table_exists": true
+    }
+  },
+  "validation_status": "COMPLETED"
+}
