@@ -55,15 +55,8 @@ CREATE TABLE IF NOT EXISTS claims (
     extracted_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- News outlet profiles for authority scoring
-CREATE TABLE IF NOT EXISTS outlet_profiles (
-    domain TEXT PRIMARY KEY,
-    authority_weight NUMERIC DEFAULT 0.8,
-    correction_rate NUMERIC DEFAULT 0.02,
-    independence_group TEXT,
-    bias_rating TEXT, -- 'left', 'center-left', 'center', 'center-right', 'right'
-    factual_reporting_score NUMERIC -- 0.0 to 1.0
-);
+-- News outlet authority scores (replaces outlet_profiles)
+-- Note: outlet_authority table is created separately and contains outlet authority data
 
 -- Computed EQIS metrics (created by analytics service)
 CREATE TABLE IF NOT EXISTS event_metrics (

@@ -161,31 +161,76 @@ Academic research revealed comprehensive frameworks for journalism quality:
 
 ### New Tables
 
+#### News Agency Reputation Metrics Table
+
+The `news_agency_reputation_metrics` table serves as the comprehensive repository for journalism awards, professional recognition, and credibility indicators for news organizations. This table enables:
+
+- **Detailed Award Tracking**: Maintains complete records of major journalism awards (Pulitzer, Murrow, Peabody, Emmy) with year tracking
+- **Professional Assessment**: Captures industry memberships, editorial independence ratings, and fact-checking standards
+- **Ethics & Transparency**: Documents correction policies, ownership transparency, and funding disclosure practices
+- **Research Documentation**: Includes research notes and last update dates for maintainability
+
 ```sql
--- Outlet reputation tracking
+-- News Agency Reputation Metrics - Core journalism awards and professional recognition
+CREATE TABLE news_agency_reputation_metrics (
+    id BIGSERIAL PRIMARY KEY,
+    outlet_name VARCHAR(255) NOT NULL UNIQUE,
+    
+    -- Major Journalism Awards (10 points each, max 40)
+    pulitzer_awards INTEGER DEFAULT 0,
+    pulitzer_years TEXT[], -- Array of years for awards tracking
+    murrow_awards INTEGER DEFAULT 0,
+    murrow_years TEXT[],
+    peabody_awards INTEGER DEFAULT 0,
+    peabody_years TEXT[],
+    emmy_awards INTEGER DEFAULT 0,
+    emmy_years TEXT[],
+    
+    -- Regional/Specialized Awards (5 points each, max 20)
+    george_polk_awards INTEGER DEFAULT 0,
+    duPont_awards INTEGER DEFAULT 0,
+    spj_awards INTEGER DEFAULT 0, -- Society of Professional Journalists
+    other_specialized_awards INTEGER DEFAULT 0,
+    
+    -- Professional Standing Metrics
+    press_freedom_ranking INTEGER, -- Country/org press freedom index
+    industry_memberships TEXT[], -- Professional journalism organizations
+    editorial_independence_rating NUMERIC(3,1), -- 0-10 scale
+    fact_checking_standards BOOLEAN DEFAULT FALSE,
+    
+    -- Credibility and Ethics
+    correction_policy_exists BOOLEAN DEFAULT FALSE,
+    retraction_transparency BOOLEAN DEFAULT FALSE,
+    ownership_transparency BOOLEAN DEFAULT FALSE,
+    funding_disclosure BOOLEAN DEFAULT FALSE,
+    ethics_code_public BOOLEAN DEFAULT FALSE,
+    
+    -- Computed scores
+    total_awards_score INTEGER DEFAULT 0,
+    professional_standing_score INTEGER DEFAULT 0,
+    credibility_score INTEGER DEFAULT 0,
+    final_reputation_score NUMERIC(5,2) DEFAULT 0,
+    
+    -- Metadata
+    last_research_date DATE,
+    research_notes TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Outlet reputation tracking (simplified version referencing detailed metrics)
 CREATE TABLE outlet_reputation_scores (
     id BIGSERIAL PRIMARY KEY,
     outlet VARCHAR(255) NOT NULL UNIQUE,
     reputation_score NUMERIC(5,2) NOT NULL DEFAULT 0,
     
-    -- Awards tracking
-    pulitzer_awards INTEGER DEFAULT 0,
-    murrow_awards INTEGER DEFAULT 0,
-    peabody_awards INTEGER DEFAULT 0,
-    emmy_awards INTEGER DEFAULT 0,
-    other_awards INTEGER DEFAULT 0,
+    -- Reference to detailed metrics
+    reputation_metrics_id BIGINT REFERENCES news_agency_reputation_metrics(id),
     
-    -- Professional standing
-    press_freedom_score NUMERIC(3,1),
-    industry_membership_score INTEGER DEFAULT 0,
-    editorial_independence_score INTEGER DEFAULT 0,
-    fact_check_standards_score INTEGER DEFAULT 0,
-    
-    -- Credibility indicators
-    correction_rate NUMERIC(4,3),
-    retraction_count INTEGER DEFAULT 0,
-    transparency_score INTEGER DEFAULT 0,
-    ethics_score INTEGER DEFAULT 0,
+    -- Quick lookup fields (denormalized for performance)
+    total_major_awards INTEGER DEFAULT 0,
+    has_fact_checking BOOLEAN DEFAULT FALSE,
+    press_freedom_tier VARCHAR(20), -- 'excellent', 'good', 'fair', 'poor'
     
     last_updated TIMESTAMPTZ DEFAULT NOW(),
     created_at TIMESTAMPTZ DEFAULT NOW()
@@ -238,34 +283,88 @@ ADD COLUMN composite_quality_score NUMERIC(5,2);
 
 ```python
 def calculate_reputation_score(outlet: str) -> float:
-    """Calculate reputation score for news outlet"""
+    """Calculate reputation score for news outlet using detailed metrics table"""
     
-    # Get outlet data from database
-    outlet_data = get_outlet_reputation_data(outlet)
+    # Get detailed outlet data from news_agency_reputation_metrics table
+    outlet_metrics = get_news_agency_metrics(outlet)
     
-    score = 0.0
+    if not outlet_metrics:
+        # Fallback to basic outlet_authority table if no detailed metrics exist
+        return get_basic_authority_score(outlet)
     
-    # Awards & Recognition (0-60)
-    awards_score = min(60, (
-        outlet_data.pulitzer_awards * 10 +
-        outlet_data.murrow_awards * 10 +
-        outlet_data.peabody_awards * 10 +
-        outlet_data.emmy_awards * 10 +
-        outlet_data.other_awards * 5
+    scores = {}
+    
+    # Awards & Recognition (0-60 points)
+    major_awards_score = min(40, (
+        outlet_metrics.pulitzer_awards * 10 +
+        outlet_metrics.murrow_awards * 10 +
+        outlet_metrics.peabody_awards * 10 +
+        outlet_metrics.emmy_awards * 10
     ))
     
-    # Professional Standing (0-25)
-    professional_score = (
-        outlet_data.press_freedom_score +
-        outlet_data.industry_membership_score +
-        outlet_data.editorial_independence_score +
-        outlet_data.fact_check_standards_score
+    specialized_awards_score = min(20, (
+        outlet_metrics.george_polk_awards * 5 +
+        outlet_metrics.duPont_awards * 5 +
+        outlet_metrics.spj_awards * 2 +
+        outlet_metrics.other_specialized_awards * 2
+    ))
+    
+    awards_score = major_awards_score + specialized_awards_score
+    
+    # Professional Standing (0-25 points)
+    press_freedom_points = calculate_press_freedom_score(outlet_metrics.press_freedom_ranking)
+    membership_points = len(outlet_metrics.industry_memberships or []) * 2  # 2 points per membership
+    independence_points = outlet_metrics.editorial_independence_rating or 0
+    fact_check_points = 5 if outlet_metrics.fact_checking_standards else 0
+    
+    professional_score = min(25, 
+        press_freedom_points + membership_points + independence_points + fact_check_points
     )
     
-    # Credibility Indicators (0-15)
-    credibility_score = calculate_credibility_score(outlet_data)
+    # Credibility & Ethics (0-15 points)
+    credibility_factors = [
+        outlet_metrics.correction_policy_exists,
+        outlet_metrics.retraction_transparency, 
+        outlet_metrics.ownership_transparency,
+        outlet_metrics.funding_disclosure,
+        outlet_metrics.ethics_code_public
+    ]
+    credibility_score = sum(3 for factor in credibility_factors if factor)  # 3 points each
     
-    return min(100, awards_score + professional_score + credibility_score)
+    total_score = min(100, awards_score + professional_score + credibility_score)
+    
+    # Update the computed scores in database
+    update_reputation_metrics_scores(outlet_metrics.id, {
+        'total_awards_score': awards_score,
+        'professional_standing_score': professional_score, 
+        'credibility_score': credibility_score,
+        'final_reputation_score': total_score
+    })
+    
+    return total_score
+
+def get_news_agency_metrics(outlet: str):
+    """Fetch detailed reputation metrics from database"""
+    query = """
+    SELECT * FROM news_agency_reputation_metrics 
+    WHERE outlet_name = %s
+    """
+    return db.fetch_one(query, [outlet])
+
+def calculate_press_freedom_score(ranking: int) -> int:
+    """Convert press freedom ranking to score points (0-10)"""
+    if not ranking:
+        return 5  # Default/unknown
+    elif ranking <= 20:
+        return 10  # Excellent
+    elif ranking <= 50:
+        return 8   # Good  
+    elif ranking <= 100:
+        return 6   # Fair
+    elif ranking <= 150:
+        return 4   # Poor
+    else:
+        return 2   # Very poor
 ```
 
 ### Writing Quality Score Calculation
@@ -375,6 +474,166 @@ def calculate_writing_quality_score(article_text: str) -> dict:
    - User feedback integration
    - Machine learning model training
    - Regular algorithm updates
+
+## Programmatic Implementation
+
+### Integration with Quality Service
+
+The Writing Quality Score will be implemented as part of the existing quality-service, updating the current `quality_score` column in the articles table with the new comprehensive scoring algorithm.
+
+```python
+# Enhanced quality_service with Writing Quality Score
+def calculate_comprehensive_quality_score(article_text: str, outlet: str, title: str) -> dict:
+    """
+    Calculate comprehensive quality score combining writing quality metrics
+    Updates the articles.quality_score column directly
+    """
+    
+    # Calculate writing quality components
+    writing_scores = {
+        'readability': calculate_readability_score(article_text),
+        'structure': analyze_journalistic_structure(article_text, title),
+        'linguistic': assess_linguistic_quality(article_text),
+        'objectivity': evaluate_objectivity_balance(article_text)
+    }
+    
+    # Calculate total writing quality score (0-100)
+    total_writing_score = sum(writing_scores.values())
+    
+    # Get outlet reputation (fallback to existing authority system)
+    outlet_reputation = get_outlet_reputation_score(outlet)
+    
+    # Composite score (60% writing quality + 40% reputation)
+    composite_score = (total_writing_score * 0.6) + (outlet_reputation * 0.4)
+    
+    return {
+        'writing_quality_score': total_writing_score,
+        'reputation_score': outlet_reputation,
+        'composite_score': composite_score,
+        'components': writing_scores
+    }
+
+def update_article_quality_score(article_id: int, scores: dict):
+    """Update articles table with new quality score"""
+    query = """
+    UPDATE articles 
+    SET quality_score = %s,
+        quality_computed_at = NOW()
+    WHERE id = %s
+    """
+    cursor.execute(query, [scores['composite_score'], article_id])
+```
+
+### Batch Processing for Existing Articles
+
+```python
+def recompute_all_quality_scores(batch_size: int = 100):
+    """
+    Recompute quality scores for all articles in database
+    Processes articles in batches to manage memory usage
+    """
+    
+    offset = 0
+    total_processed = 0
+    
+    while True:
+        # Get batch of articles without quality scores or old scores
+        articles = get_articles_for_scoring(batch_size, offset)
+        
+        if not articles:
+            break
+            
+        for article in articles:
+            try:
+                # Skip articles without sufficient text content
+                if not article.text or len(article.text) < 100:
+                    continue
+                    
+                # Calculate quality scores
+                scores = calculate_comprehensive_quality_score(
+                    article.text, 
+                    article.outlet, 
+                    article.title
+                )
+                
+                # Update database
+                update_article_quality_score(article.id, scores)
+                total_processed += 1
+                
+                if total_processed % 50 == 0:
+                    print(f"Processed {total_processed} articles...")
+                    
+            except Exception as e:
+                print(f"Error processing article {article.id}: {e}")
+                continue
+                
+        offset += batch_size
+        
+    print(f"Quality score recomputation complete. Processed {total_processed} articles.")
+```
+
+### Validation and Testing Framework
+
+```python
+def validate_quality_scoring():
+    """
+    Comprehensive validation of quality scoring implementation
+    Tests various article types and edge cases
+    """
+    
+    test_cases = [
+        {
+            'name': 'High Quality News Article',
+            'text': get_sample_high_quality_article(),
+            'expected_min_score': 70,
+            'outlet': 'BBC World'
+        },
+        {
+            'name': 'Low Quality Content',
+            'text': get_sample_low_quality_article(), 
+            'expected_max_score': 40,
+            'outlet': 'Unknown Source'
+        },
+        {
+            'name': 'Technical Article',
+            'text': get_sample_technical_article(),
+            'expected_readability_range': (40, 70),
+            'outlet': 'Reuters'
+        }
+    ]
+    
+    results = []
+    
+    for test_case in test_cases:
+        scores = calculate_comprehensive_quality_score(
+            test_case['text'], 
+            test_case['outlet'], 
+            'Test Article Title'
+        )
+        
+        # Validate expectations
+        test_result = {
+            'name': test_case['name'],
+            'scores': scores,
+            'passed': True,
+            'issues': []
+        }
+        
+        # Check score ranges
+        if 'expected_min_score' in test_case:
+            if scores['composite_score'] < test_case['expected_min_score']:
+                test_result['passed'] = False
+                test_result['issues'].append(f"Score too low: {scores['composite_score']}")
+                
+        if 'expected_max_score' in test_case:
+            if scores['composite_score'] > test_case['expected_max_score']:
+                test_result['passed'] = False
+                test_result['issues'].append(f"Score too high: {scores['composite_score']}")
+        
+        results.append(test_result)
+    
+    return results
+```
 
 ## Technical Requirements
 

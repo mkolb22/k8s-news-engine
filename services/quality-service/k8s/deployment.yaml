@@ -22,7 +22,7 @@ spec:
       # serviceAccountName: news-engine-sa
       containers:
       - name: quality-service
-        image: k8s-news-engine-quality-service:v1.1.0
+        image: k8s-news-engine-quality-service:v1.4.0
         imagePullPolicy: Never
         env:
         - name: DATABASE_URL

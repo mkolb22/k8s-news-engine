@@ -1,5 +1,11 @@
 # Quality Service Python Dependencies
-# Minimal dependencies for article quality scoring and event grouping
+# Dependencies for article quality scoring with writing quality analysis
 
 psycopg2-binary==2.9.7
 python-dateutil==2.8.2
+
+# Writing Quality Analysis Dependencies
+textstat==0.7.3
+py-readability-metrics==1.4.5
+nltk==3.8.1
+textblob==0.17.1

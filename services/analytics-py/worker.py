@@ -17,12 +17,6 @@ def load_config():
 
 def ensure_tables(engine):
     ddl = '''
-    CREATE TABLE IF NOT EXISTS outlet_profiles (
-      domain TEXT PRIMARY KEY,
-      authority_weight NUMERIC DEFAULT 0.8,
-      correction_rate NUMERIC DEFAULT 0.02,
-      independence_group TEXT
-    );
     CREATE TABLE IF NOT EXISTS event_metrics (
       event_id BIGINT PRIMARY KEY,
       computed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -67,14 +61,15 @@ def fetch_event_claims(engine, event_id):
     return rows
 
 def fetch_outlet_profiles(engine):
-    sql = 'SELECT domain, authority_weight, correction_rate, COALESCE(independence_group, domain) AS grp FROM outlet_profiles'
+    # Use outlet_authority table instead of the dropped outlet_profiles table
+    sql = 'SELECT outlet_name as domain, authority_score/100.0 as authority_weight FROM outlet_authority'
     with engine.begin() as conn:
         rows = conn.execute(text(sql)).mappings().all()
     prof = {}
     for r in rows:
         prof[r["domain"]] = {"authority_weight": float(r["authority_weight"] or 0.8),
-                             "correction_rate": float(r["correction_rate"] or 0.02),
-                             "group": r["grp"]}
+                             "correction_rate": 0.02,  # Default correction rate
+                             "group": r["domain"]}  # Use domain as group
     return prof
 
 def default_group(domain):

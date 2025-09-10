@@ -17,6 +17,11 @@ from typing import List, Tuple, Dict, Optional, Set
 import json
 import signal
 
+# Import writing quality analyzer, reputation analyzer, and RSS validation
+from writing_quality_analyzer import WritingQualityAnalyzer
+from reputation_analyzer import ReputationAnalyzer
+from rss_agency_validator import validate_rss_feed_mapping, get_rss_validation_report
+
 # Set up logging
 logging.basicConfig(
     level=logging.INFO,
@@ -40,7 +45,31 @@ class QualityService:
         self.authority_outlets = {}
         self.load_authority_scores()
         
-        logger.info(f"Quality Service initialized with {len(self.authority_outlets)} outlet authority scores")
+        # Initialize writing quality analyzer
+        self.writing_analyzer = WritingQualityAnalyzer()
+        
+        # Initialize reputation analyzer
+        self.reputation_analyzer = ReputationAnalyzer()
+        self.reputation_analyzer.connect_to_database()
+        
+        # Log RSS feed to news agency validation summary
+        try:
+            validation_report = get_rss_validation_report()
+            summary = validation_report['summary']
+            logger.info(f"RSS Feed Validation Summary: {summary['total_rss_feeds']} feeds, "
+                       f"{summary['mapped_to_agencies']} mapped ({summary['mapping_percentage']}%), "
+                       f"{summary['with_reputation_scores']} scored ({summary['scoring_percentage']}%)")
+            
+            if summary['unmapped_feeds'] > 0:
+                logger.warning(f"{summary['unmapped_feeds']} RSS feeds have no news agency mapping")
+            
+            if summary['mapped_but_unscored'] > 0:
+                logger.warning(f"{summary['mapped_but_unscored']} RSS feeds mapped to agencies but no reputation scores")
+                
+        except Exception as e:
+            logger.warning(f"Could not generate RSS validation report: {e}")
+        
+        logger.info(f"Quality Service initialized with {len(self.authority_outlets)} outlet authority scores, writing quality analyzer, and reputation analyzer")
 
     def get_db_connection(self):
         """Get database connection with timezone configuration"""
@@ -89,59 +118,94 @@ class QualityService:
             raise
 
     def calculate_article_quality_score(self, article: Dict) -> float:
-        """Calculate quality score for an article based on multiple factors"""
-        score = 0.0
-        
-        # Authority score (0-40): Based on outlet reputation
-        outlet = article.get('outlet', '')
-        score += self.authority_outlets.get(outlet, 15)  # Default 15 for unknown outlets
-        
-        # Content quality score (0-25): Based on text length and structure
-        text = article.get('text', '')
-        if len(text) > 2000:
-            score += 25
-        elif len(text) > 1000:
-            score += 20
-        elif len(text) > 500:
-            score += 15
-        elif len(text) > 200:
-            score += 10
-        else:
-            score += 5
-        
-        # Title quality score (0-20): Based on title descriptiveness
-        title = article.get('title', '')
-        if len(title) > 100:
-            score += 20
-        elif len(title) > 60:
-            score += 15
-        elif len(title) > 30:
-            score += 10
-        else:
-            score += 5
-        
-        # Recency bonus (0-15): More recent articles get higher scores
-        if article.get('published_at'):
+        """Calculate comprehensive quality score using Writing Quality Analysis"""
+        try:
+            # Get article content
+            text = article.get('text', '')
+            title = article.get('title', '')
+            outlet = article.get('outlet', '')
+            
+            # Get writing quality scores (0-100)
+            writing_scores = self.writing_analyzer.analyze_article(text, title)
+            
+            # Get outlet reputation score using comprehensive reputation analyzer (0-100 scale)
+            # First validate RSS feed has news agency mapping, then get reputation score
             try:
-                now = datetime.now(timezone.utc)
-                pub_time = article['published_at']
-                if pub_time.tzinfo is None:
-                    pub_time = pub_time.replace(tzinfo=timezone.utc)
+                # Check if RSS feed has proper news agency mapping
+                has_agency_score, reputation_score_full, validation_message = validate_rss_feed_mapping(outlet)
                 
-                hours_ago = (now - pub_time).total_seconds() / 3600
-                
-                if hours_ago <= 6:
-                    score += 15
-                elif hours_ago <= 24:
-                    score += 10
-                elif hours_ago <= 48:
-                    score += 5
-                # No bonus for older articles
+                if has_agency_score and reputation_score_full > 0:
+                    # Use validated agency reputation score
+                    outlet_reputation_full = reputation_score_full
+                    # Scale down from 0-100 to 0-40 to maintain existing composite scoring balance
+                    outlet_reputation = outlet_reputation_full * 0.4
+                    logger.debug(f"Using agency reputation score for {outlet}: {outlet_reputation_full}/100 -> {outlet_reputation}/40")
+                else:
+                    # Log validation issue and fall back to reputation analyzer
+                    logger.warning(f"RSS feed validation: {validation_message}")
+                    outlet_reputation_full = self.reputation_analyzer.get_outlet_reputation(outlet)
+                    outlet_reputation = outlet_reputation_full * 0.4
+                    
             except Exception as e:
-                logger.warning(f"Error calculating recency for article {article.get('id')}: {e}")
-                score += 5  # Default if time calculation fails
-        
-        return min(score, 100)  # Cap at 100
+                logger.warning(f"Reputation system failed for {outlet}, using fallback authority: {e}")
+                outlet_reputation = self.authority_outlets.get(outlet, 15)  # Default 15 for unknown outlets
+            
+            # Calculate composite score: 60% writing quality + 40% outlet reputation
+            # This aligns with the quality scoring proposal
+            writing_quality_weighted = writing_scores.total_score * 0.6  # Max 60
+            reputation_weighted = outlet_reputation  # Max 40 (keeping existing scale)
+            
+            composite_score = writing_quality_weighted + reputation_weighted
+            
+            # Add small recency bonus (0-5) to maintain time sensitivity
+            if article.get('published_at'):
+                try:
+                    now = datetime.now(timezone.utc)
+                    pub_time = article['published_at']
+                    if pub_time.tzinfo is None:
+                        pub_time = pub_time.replace(tzinfo=timezone.utc)
+                    
+                    hours_ago = (now - pub_time).total_seconds() / 3600
+                    
+                    if hours_ago <= 6:
+                        composite_score += 5
+                    elif hours_ago <= 24:
+                        composite_score += 3
+                    elif hours_ago <= 48:
+                        composite_score += 1
+                    # No bonus for older articles
+                except Exception as e:
+                    logger.warning(f"Error calculating recency for article {article.get('id')}: {e}")
+                    composite_score += 1  # Default if time calculation fails
+            
+            # Custom rounding: round down at .5 and below, round up at .6 and above
+            decimal_part = composite_score - int(composite_score)
+            if decimal_part <= 0.5:
+                final_score = int(composite_score)  # Round down
+            else:
+                final_score = int(composite_score) + 1  # Round up
+            
+            # Log detailed scoring for debugging (first few articles)
+            if hasattr(self, '_debug_count') and self._debug_count < 5:
+                logger.info(f"Quality scoring breakdown for article {article.get('id')}: "
+                           f"Writing={writing_scores.total_score}/100, "
+                           f"Outlet={outlet_reputation}/40, "
+                           f"Composite={final_score}")
+                self._debug_count += 1
+            elif not hasattr(self, '_debug_count'):
+                self._debug_count = 1
+                logger.info(f"Quality scoring breakdown for article {article.get('id')}: "
+                           f"Writing={writing_scores.total_score}/100, "
+                           f"Outlet={outlet_reputation}/40, "
+                           f"Composite={final_score}")
+            
+            return float(min(final_score, 100))  # Cap at 100
+            
+        except Exception as e:
+            logger.error(f"Error in comprehensive quality analysis for article {article.get('id')}: {e}")
+            # Fallback to simple scoring
+            outlet = article.get('outlet', '')
+            return min(self.authority_outlets.get(outlet, 15) + 35, 100)  # Simple fallback
 
     def extract_key_entities(self, text: str) -> Set[str]:
         """Extract key entities from article text - matches publisher service algorithm"""
