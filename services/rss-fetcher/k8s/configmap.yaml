@@ -18,14 +18,9 @@ data:
         interval: 15
         category: "news"
         
-      - url: "https://rss.cnn.com/rss/cnn_topstories.rss"
+      - url: "http://rss.cnn.com/rss/cnn_topstories.rss"
         outlet: "CNN Top Stories"
         interval: 15
-        category: "news"
-        
-      - url: "https://feeds.reuters.com/reuters/topNews"
-        outlet: "Reuters Top News"
-        interval: 10
         category: "news"
         
       - url: "https://www.theguardian.com/world/rss"
@@ -43,7 +38,7 @@ data:
         interval: 30
         category: "news"
         
-      - url: "https://www.politico.com/rss/politicopicks.xml"
+      - url: "https://rss.politico.com/politics-news.xml"
         outlet: "Politico"
         interval: 15
         category: "news"
@@ -58,12 +53,12 @@ data:
         interval: 20
         category: "news"
         
-      - url: "https://www.nbcnews.com/feeds/rss/topstories"
+      - url: "https://feeds.nbcnews.com/nbcnews/public/news"
         outlet: "NBC News"
         interval: 20
         category: "news"
         
-      - url: "https://feeds.cbsnews.com/CBSNewsMain"
+      - url: "https://www.cbsnews.com/latest/rss/main"
         outlet: "CBS News"
         interval: 20
         category: "news"

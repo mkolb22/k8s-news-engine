@@ -71,3 +71,25 @@ The service expects these tables to exist:
 - Database connection: Set `DATABASE_URL` environment variable
 - Metrics weights: Edit `services/analytics-py/configs/metrics.yml`
 - CronJob schedule: Modify `services/analytics-py/k8s/cronjob.yaml`
+
+## Documentation Standards
+
+### Service Documentation
+- **Required**: Each service must have a comprehensive `README.md` in its directory
+- **Standard**: Follow the template in `docs/SERVICE-DOCUMENTATION-STANDARD.md`
+- **Change Tracking**: Document all code changes in service changelog with version numbers
+- **Testing**: Include validation results and testing methodology
+
+### Current Documentation Status
+- ✅ **quality-service**: Complete with NER feature documentation (v1.1.0)
+- 🔄 **rss-fetcher**: Needs standardization
+- 🔄 **publisher**: Needs standardization  
+- 🔄 **analytics-py**: Needs standardization
+- 🔄 **claim-extractor**: Needs standardization
+
+### Development Workflow
+1. **Local Testing**: Test all code changes outside containers first
+2. **Semantic Versioning**: Use major.minor.patch for container versions (never "latest")
+3. **Container Updates**: Update Kubernetes manifests with new image tags before deployment
+4. **Documentation**: Update service README with every code change
+5. **Validation**: Confirm functionality after deployment and document results

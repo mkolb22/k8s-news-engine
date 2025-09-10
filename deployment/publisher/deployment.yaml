@@ -21,7 +21,7 @@ spec:
       containers:
       - name: publisher
         image: k8s-news-engine/publisher:latest
-        imagePullPolicy: IfNotPresent
+        imagePullPolicy: Always
         ports:
         - containerPort: 8080
           name: http

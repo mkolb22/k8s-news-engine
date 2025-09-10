@@ -21,7 +21,7 @@ spec:
       containers:
       - name: fetcher
         image: k8s-news-engine/rss-fetcher:latest
-        imagePullPolicy: IfNotPresent
+        imagePullPolicy: Always
         env:
         - name: DATABASE_URL
           value: "postgresql://appuser:newsengine2024@postgresql.news-engine.svc.cluster.local:5432/newsdb?sslmode=disable"

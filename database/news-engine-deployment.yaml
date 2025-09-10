@@ -43,6 +43,7 @@ spec:
       initContainers:
       - name: init-schema
         image: postgres:16-alpine
+        imagePullPolicy: Always
         command: ['sh', '-c']
         args:
           - |
