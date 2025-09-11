@@ -9,3 +9,6 @@ textstat==0.7.3
 py-readability-metrics==1.4.5
 nltk==3.8.1
 textblob==0.17.1
+
+# Improved NER Dependencies
+spacy>=3.7.0,<4.0.0

@@ -17,6 +17,8 @@ The system consists of Python-based analytics services that:
 ### Key Components
 - **analytics-py**: Python service computing EQIS scores using scikit-learn for TF-IDF analysis
 - **publisher**: Lighttpd-based service with CGI scripts for content delivery
+- **quality-service**: NER processing service using spaCy for entity extraction and event grouping
+- **rss-fetcher**: Go-based RSS feed processing service with duplicate detection
 - **PostgreSQL database** with tables: events, articles, event_articles, claims, outlet_profiles, event_metrics
 
 ## Common Commands
@@ -26,8 +28,8 @@ The system consists of Python-based analytics services that:
 docker build -t eqis-analytics ./services/analytics-py
 docker build -t publisher ./services/publisher
 
-# Run locally
-docker run --rm -e DATABASE_URL="postgresql+psycopg2://truth:truth@localhost:5432/truthdb" eqis-analytics
+# Run locally (credentials now managed via Kubernetes secrets)
+docker run --rm -e DATABASE_URL="postgresql+psycopg2://appuser:newsengine2024@localhost:5432/newsdb" eqis-analytics
 docker run -p 8080:80 publisher
 
 # Deploy to Kubernetes
@@ -80,7 +82,14 @@ The service expects these tables to exist:
 
 ## Configuration
 
-- Database connection: Set `DATABASE_URL` environment variable
+### Database Credentials (Security Enhanced)
+- **Production**: Credentials managed via Kubernetes secret `postgres-secret` in `news-engine` namespace
+- **Environment Variables**: DATABASE_URL constructed dynamically from individual secret components
+- **Runtime Access Only**: Database passwords never stored in deployment manifests
+- **Secret Components**: DB_USER, DB_PASSWORD, DB_HOST, DB_PORT, DB_NAME
+- **Credential Rotation**: Update `postgres-secret` to rotate credentials across all services
+
+### Other Configuration
 - Metrics weights: Edit `services/analytics-py/configs/metrics.yml`
 - CronJob schedule: Modify `services/analytics-py/k8s/cronjob.yaml`
 
@@ -93,10 +102,10 @@ The service expects these tables to exist:
 - **Testing**: Include validation results and testing methodology
 
 ### Current Documentation Status
-- ✅ **quality-service**: Complete with NER feature documentation (v1.1.0)
-- 🔄 **rss-fetcher**: Needs standardization
-- 🔄 **publisher**: Needs standardization  
-- 🔄 **analytics-py**: Needs standardization
+- ✅ **quality-service**: Complete with NER feature documentation (v1.5.2)
+- 🔄 **rss-fetcher**: Needs standardization (v2.1.0)
+- 🔄 **publisher**: Needs standardization (v1.1.0)
+- 🔄 **analytics-py**: Needs standardization (v2.0.2)
 - 🔄 **claim-extractor**: Needs standardization
 
 ### Development Workflow
@@ -105,3 +114,38 @@ The service expects these tables to exist:
 3. **Container Updates**: Update Kubernetes manifests with new image tags before deployment
 4. **Documentation**: Update service README with every code change
 5. **Validation**: Confirm functionality after deployment and document results
+
+## Security Implementation
+
+### Database Credential Management
+All services implement secure database credential management using Kubernetes secrets:
+
+**Implementation Pattern:**
+```yaml
+command: ["/bin/sh"]
+args: ["-c", "export DATABASE_URL=\"postgresql://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:${DB_PORT}/${DB_NAME}\" && [start_command]"]
+env:
+- name: DB_USER
+  valueFrom:
+    secretKeyRef:
+      name: postgres-secret
+      key: app-user
+- name: DB_PASSWORD
+  valueFrom:
+    secretKeyRef:
+      name: postgres-secret
+      key: app-password
+```
+
+**Security Benefits:**
+- ✅ **Runtime-only credential access**: Passwords only available during container execution
+- ✅ **No hardcoded credentials**: Zero secrets in deployment manifests or source code
+- ✅ **Centralized management**: Single `postgres-secret` serves all services
+- ✅ **Easy rotation**: Update secret once, affects all services automatically
+- ✅ **Audit trail**: Kubernetes RBAC tracks all secret access
+
+**Services Using Secure Credentials:**
+- analytics-py (v2.0.2) - CronJob with startup health checks
+- publisher (v1.1.0) - Web service with runtime credential injection  
+- quality-service (v1.5.2) - Background processing with NER validation
+- rss-fetcher (v2.1.0) - Go binary with shell-based credential construction

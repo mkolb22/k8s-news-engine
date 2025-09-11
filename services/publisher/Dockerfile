@@ -32,16 +32,18 @@ RUN python3 -c "import nltk; nltk.download('punkt'); nltk.download('stopwords');
 # Create directories
 RUN mkdir -p /var/www/htdocs \
     && mkdir -p /var/www/cgi-bin \
-    && mkdir -p /var/log/lighttpd
+    && mkdir -p /var/log/lighttpd \
+    && mkdir -p /app
 
 # Copy web content and CGI scripts
 COPY htdocs/ /var/www/htdocs/
 COPY cgi-bin/ /var/www/cgi-bin/
-RUN chmod +x /var/www/cgi-bin/*
+COPY startup_health_check.py /app/startup_health_check.py
+RUN chmod +x /var/www/cgi-bin/* && chmod +x /app/startup_health_check.py
 
 # Create non-root user
 RUN adduser -D -s /bin/sh -u 1000 publisher && \
-    chown -R publisher:publisher /var/www /var/log/lighttpd
+    chown -R publisher:publisher /var/www /var/log/lighttpd /app
 
 # Set timezone environment variable for consistent timezone handling
 ENV TZ=UTC
@@ -52,4 +54,4 @@ EXPOSE 8080
 # Switch to non-root user  
 USER publisher
 
-CMD ["lighttpd", "-D", "-f", "/etc/lighttpd/lighttpd.conf"]
+CMD ["sh", "-c", "python3 /app/startup_health_check.py && lighttpd -D -f /etc/lighttpd/lighttpd.conf"]

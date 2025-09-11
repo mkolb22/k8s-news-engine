@@ -17,7 +17,7 @@ docker build -t publisher ./services/publisher
 ### Local Development
 ```bash
 # Run analytics service
-docker run --rm -e DATABASE_URL="postgresql+psycopg2://truth:truth@localhost:5432/truthdb" eqis-analytics
+docker run --rm -e DATABASE_URL="postgresql+psycopg2://appuser:newsengine2024@localhost:5432/newsdb" eqis-analytics
 
 # Run RSS fetcher once
 docker run --rm -e DATABASE_URL="postgresql://user:pass@host:5432/db" k8s-news-engine/rss-fetcher:latest ./rss-fetcher --once

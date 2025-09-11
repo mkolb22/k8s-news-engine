@@ -44,6 +44,55 @@ type Article struct {
 	RSSFeedID   int       `json:"rss_feed_id"`
 }
 
+func performDatabaseHealthCheck(db *sql.DB) error {
+	// Set connection pool settings
+	db.SetMaxOpenConns(10)
+	db.SetMaxIdleConns(5)
+	db.SetConnMaxLifetime(time.Hour)
+
+	// Retry database ping with exponential backoff
+	maxRetries := 5
+	for i := 0; i < maxRetries; i++ {
+		if err := db.Ping(); err != nil {
+			if i == maxRetries-1 {
+				return fmt.Errorf("failed to ping database after %d attempts: %w", maxRetries, err)
+			}
+			waitTime := time.Duration(1<<uint(i)) * time.Second // exponential backoff: 1s, 2s, 4s, 8s
+			fmt.Printf("Database ping failed (attempt %d/%d), retrying in %v: %v\n", i+1, maxRetries, waitTime, err)
+			time.Sleep(waitTime)
+			continue
+		}
+		break
+	}
+
+	// Test basic database operations
+	if err := testDatabaseOperations(db); err != nil {
+		return fmt.Errorf("database operations test failed: %w", err)
+	}
+
+	fmt.Println("Database health check passed successfully")
+	return nil
+}
+
+func testDatabaseOperations(db *sql.DB) error {
+	// Test SELECT operation
+	var count int
+	err := db.QueryRow("SELECT COUNT(*) FROM articles").Scan(&count)
+	if err != nil {
+		return fmt.Errorf("failed to query articles table: %w", err)
+	}
+
+	// Test rss_feeds table access
+	var feedCount int
+	err = db.QueryRow("SELECT COUNT(*) FROM rss_feeds WHERE active = TRUE").Scan(&feedCount)
+	if err != nil {
+		return fmt.Errorf("failed to query rss_feeds table: %w", err)
+	}
+
+	fmt.Printf("Database operational test passed: %d articles, %d active feeds\n", count, feedCount)
+	return nil
+}
+
 func NewRSSFetcher() (*RSSFetcher, error) {
 	// Database connection
 	dbURL := os.Getenv("DATABASE_URL")
@@ -56,8 +105,10 @@ func NewRSSFetcher() (*RSSFetcher, error) {
 		return nil, fmt.Errorf("failed to connect to database: %w", err)
 	}
 
-	if err := db.Ping(); err != nil {
-		return nil, fmt.Errorf("failed to ping database: %w", err)
+	// Enhanced database health check with retries
+	if err := performDatabaseHealthCheck(db); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("database health check failed: %w", err)
 	}
 
 	// HTTP client with timeout
@@ -229,9 +280,9 @@ func (f *RSSFetcher) ExtractArticleContent(url string) (*Article, error) {
 	}, nil
 }
 
-func (f *RSSFetcher) SaveArticle(feedID int, outlet string, item *gofeed.Item) (*int, error) {
+func (f *RSSFetcher) SaveArticle(feedID int, outlet string, item *gofeed.Item) (*int, bool, error) {
 	if item.Link == "" {
-		return nil, fmt.Errorf("article has no link")
+		return nil, false, fmt.Errorf("article has no link")
 	}
 
 	// Check if article already exists
@@ -239,9 +290,9 @@ func (f *RSSFetcher) SaveArticle(feedID int, outlet string, item *gofeed.Item) (
 	err := f.db.QueryRow("SELECT id FROM articles WHERE url = $1", item.Link).Scan(&existingID)
 	if err == nil {
 		f.log.WithField("url", item.Link).Debug("Article already exists")
-		return &existingID, nil
+		return &existingID, false, nil // false indicates not a new article
 	} else if err != sql.ErrNoRows {
-		return nil, fmt.Errorf("failed to check existing article: %w", err)
+		return nil, false, fmt.Errorf("failed to check existing article: %w", err)
 	}
 
 	// Extract article content
@@ -298,16 +349,16 @@ func (f *RSSFetcher) SaveArticle(feedID int, outlet string, item *gofeed.Item) (
 	).Scan(&articleID)
 
 	if err != nil {
-		return nil, fmt.Errorf("failed to save article: %w", err)
+		return nil, false, fmt.Errorf("failed to save article: %w", err)
 	}
 
 	f.log.WithFields(logrus.Fields{
 		"article_id": articleID,
 		"title":      truncateString(item.Title, 80),
 		"url":        item.Link,
-	}).Info("Saved article")
+	}).Info("Saved new article")
 
-	return &articleID, nil
+	return &articleID, true, nil // true indicates a new article
 }
 
 func (f *RSSFetcher) LinkArticleToEvents(articleID int, title, text string) error {
@@ -414,14 +465,16 @@ func (f *RSSFetcher) ProcessFeed(feed RSSFeed) error {
 
 	newArticles := 0
 	for _, item := range itemsToProcess {
-		articleID, err := f.SaveArticle(feed.ID, feed.OutletName, item)
+		articleID, isNew, err := f.SaveArticle(feed.ID, feed.OutletName, item)
 		if err != nil {
 			f.log.WithError(err).WithField("url", item.Link).Error("Failed to save article")
 			continue
 		}
 
 		if articleID != nil {
-			newArticles++
+			if isNew {
+				newArticles++
+			}
 			// Link to events
 			err = f.LinkArticleToEvents(*articleID, item.Title, item.Description)
 			if err != nil {

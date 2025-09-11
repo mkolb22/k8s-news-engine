@@ -62,8 +62,20 @@ spec:
   concurrencyPolicy: Forbid
 ```
 
-### Environment Variables
-- `DATABASE_URL`: PostgreSQL connection string
+### Environment Variables (Kubernetes Secrets)
+**Production Deployment:**
+Credentials managed via Kubernetes secret `postgres-secret`:
+- `DB_USER`: Database username (from secret)
+- `DB_PASSWORD`: Database password (from secret)  
+- `DB_HOST`: Database host
+- `DB_PORT`: Database port
+- `DB_NAME`: Database name (from secret)
+- `DATABASE_URL`: Constructed dynamically at runtime
+
+**Security Features:**
+- ✅ Runtime-only credential access
+- ✅ No hardcoded passwords in manifests
+- ✅ Automatic startup health checks
 
 ### Build Requirements
 - Docker with sufficient memory (4GB+ recommended)
@@ -81,10 +93,12 @@ docker run --rm \
   -e DATABASE_URL="postgresql+psycopg2://user:pass@host:5432/db" \
   k8s-news-engine/analytics-py:latest
 
-# Test with local PostgreSQL
+# Test with local PostgreSQL (development only)
 docker run --rm --network host \
   -e DATABASE_URL="postgresql+psycopg2://appuser:newsengine2024@localhost:5432/newsdb" \
-  k8s-news-engine/analytics-py:latest
+  k8s-news-engine/analytics-py:v2.0.2
+
+# Production deployment uses Kubernetes secrets for credential management
 ```
 
 ## Performance Notes
@@ -93,3 +107,9 @@ docker run --rm --network host \
 - CPU: Intensive during TF-IDF computation
 - Execution time: 30-120 seconds depending on article volume
 - Designed for batch processing, not real-time
+
+## Version History
+
+- **v2.0.2**: Added secure database credential management with Kubernetes secrets
+- **v2.0.1**: Enhanced startup health checks with database and analytics dependencies validation
+- **v2.0.0**: Initial analytics worker with EQIS computation

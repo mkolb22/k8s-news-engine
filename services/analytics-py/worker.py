@@ -31,11 +31,23 @@ def ensure_tables(engine):
       components JSONB
     );
     '''
-    with engine.begin() as conn:
-        for stmt in ddl.strip().split(';'):
-            s = stmt.strip()
-            if s:
-                conn.execute(text(s))
+    try:
+        with engine.begin() as conn:
+            for stmt in ddl.strip().split(';'):
+                s = stmt.strip()
+                if s:
+                    conn.execute(text(s))
+        print("Event metrics table ensured successfully")
+    except Exception as e:
+        # Check if table exists anyway
+        try:
+            with engine.begin() as conn:
+                result = conn.execute(text("SELECT 1 FROM event_metrics LIMIT 1"))
+            print("Event metrics table exists and is accessible")
+        except Exception as e2:
+            print(f"Warning: Could not create or access event_metrics table: {e}")
+            print("This may indicate a database permissions issue")
+            # Don't fail here - let the main logic handle the error
 
 def fetch_event_article_data(engine, event_id):
     sql = '''

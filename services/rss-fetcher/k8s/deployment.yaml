@@ -20,11 +20,30 @@ spec:
     spec:
       containers:
       - name: fetcher
-        image: k8s-news-engine/rss-fetcher:v2.0.1
+        image: k8s-news-engine/rss-fetcher:v2.1.0
         imagePullPolicy: Never
+        command: ["/bin/sh"]
+        args: ["-c", "export DATABASE_URL=\"postgresql://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:${DB_PORT}/${DB_NAME}?sslmode=disable\" && ./rss-fetcher"]
         env:
-        - name: DATABASE_URL
-          value: "postgresql://appuser:newsengine2024@postgresql.news-engine.svc.cluster.local:5432/newsdb?sslmode=disable"
+        - name: DB_USER
+          valueFrom:
+            secretKeyRef:
+              name: postgres-secret
+              key: app-user
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: postgres-secret
+              key: app-password
+        - name: DB_HOST
+          value: "postgresql.news-engine.svc.cluster.local"
+        - name: DB_PORT
+          value: "5432"
+        - name: DB_NAME
+          valueFrom:
+            secretKeyRef:
+              name: postgres-secret
+              key: postgres-db
         - name: FETCH_INTERVAL
           value: "300"  # 5 minutes
         - name: TZ

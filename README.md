@@ -67,7 +67,7 @@ The system expects the following tables:
 docker build -t eqis-analytics ./services/analytics-py
 
 # Run analytics service locally
-docker run --rm -e DATABASE_URL="postgresql+psycopg2://truth:truth@localhost:5432/truthdb" eqis-analytics
+docker run --rm -e DATABASE_URL="postgresql+psycopg2://appuser:newsengine2024@localhost:5432/newsdb" eqis-analytics
 
 # Build publisher service
 docker build -t publisher ./services/publisher

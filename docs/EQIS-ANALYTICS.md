@@ -13,7 +13,7 @@ This microservice computes per-event metrics and a composite **EQIS** score:
 ## Run locally
 ```bash
 docker build -t eqis-analytics ./services/analytics-py
-docker run --rm -e DATABASE_URL="postgresql+psycopg2://truth:truth@localhost:5432/truthdb" eqis-analytics
+docker run --rm -e DATABASE_URL="postgresql+psycopg2://appuser:newsengine2024@localhost:5432/newsdb" eqis-analytics
 ```
 
 ## Kubernetes (as a CronJob)

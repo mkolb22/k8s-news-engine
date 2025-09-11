@@ -208,40 +208,59 @@ class QualityService:
             return min(self.authority_outlets.get(outlet, 15) + 35, 100)  # Simple fallback
 
     def extract_key_entities(self, text: str) -> Set[str]:
-        """Extract key entities from article text - matches publisher service algorithm"""
+        """Extract key entities from article text using improved NER system"""
         if not text or len(text) < 50:
             return set()
         
-        # Clean text first - remove obvious metadata (same as publisher)
+        try:
+            # Try to use the improved NER system
+            from improved_ner import get_ner_extractor
+            extractor = get_ner_extractor()
+            return extractor.extract_key_entities_for_grouping(text)
+            
+        except ImportError as e:
+            logger.warning(f"Improved NER not available, falling back to regex: {e}")
+            return self._extract_entities_regex_fallback(text)
+            
+    def _extract_entities_regex_fallback(self, text: str) -> Set[str]:
+        """Fallback regex-based entity extraction (enhanced version of original)"""
+        if not text or len(text) < 50:
+            return set()
+        
+        # Clean text first - remove obvious metadata
         text = text[:2000]  # Limit for performance
         
-        # Temporarily disable metadata patterns to isolate regex issue
-        # metadata_patterns = [
-        #     r'published on.*?\n',
-        #     r'recommended stories.*?\n', 
-        #     r'related stories.*?\n',
-        #     r'image.*?getty.*?\n',
-        #     r'photograph.*?\n',
-        #     r'(ap|reuters|afp).*?contributed.*?\n',
-        #     r'view.*?comments.*?\n',
-        #     r'read more.*?\n',
-        #     r'click here.*?\n'
-        # ]
+        # Enhanced metadata removal patterns
+        metadata_patterns = [
+            r'published\s+on.*?\n',
+            r'recommended\s+stories.*?\n', 
+            r'related\s+stories.*?\n',
+            r'image.*?getty.*?\n',
+            r'photograph.*?\n',
+            r'(ap|reuters|afp).*?contributed.*?\n',
+            r'view.*?comments.*?\n',
+            r'read\s+more.*?\n',
+            r'click\s+here.*?\n',
+            r'share\s+on.*?\n',
+            r'follow\s+us.*?\n',
+            r'@\w+.*?\n',
+            r'#\w+.*?\n',
+        ]
         
-        # for pattern in metadata_patterns:
-        #     try:
-        #         text = re.sub(pattern, '', text, flags=re.IGNORECASE)
-        #     except Exception as e:
-        #         logger.warning(f"Error in metadata pattern '{pattern}': {str(e)}")
-        #         continue
+        for pattern in metadata_patterns:
+            try:
+                text = re.sub(pattern, '', text, flags=re.IGNORECASE)
+            except Exception as e:
+                logger.warning(f"Error in metadata pattern '{pattern}': {str(e)}")
+                continue
         
         entities = set()
         
-        # Extract proper nouns (single words only)
-        pattern = r'\b([A-Z][a-z]+)\b'
+        # Extract proper nouns (enhanced pattern for multi-word entities)
+        pattern = r'\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\b'
         matches = re.findall(pattern, text)
         
-        # Same comprehensive non-entities list as publisher
+        # Much more comprehensive non-entities list
         non_entities = {
             'The', 'This', 'That', 'These', 'Those', 'There', 'Here', 'When', 'Where',
             'What', 'Who', 'Why', 'How', 'Monday', 'Tuesday', 'Wednesday', 'Thursday',
@@ -250,7 +269,7 @@ class QualityService:
             'New', 'First', 'Last', 'Next', 'Previous', 'Other', 'Another', 'Some', 'Many',
             'Most', 'Few', 'All', 'Both', 'Each', 'Every', 'Any', 'Several', 'Following',
             'According', 'However', 'Meanwhile', 'Moreover', 'Furthermore', 'Therefore',
-            'Published On', 'Recommended Stories', 'Related Stories', 'Associated Press',
+            'Published', 'Recommended', 'Related', 'Associated', 'Press',
             'View', 'Comments', 'Share', 'Tweet', 'Facebook', 'Instagram', 'Twitter',
             'Getty', 'Images', 'Photo', 'Picture', 'Video', 'Audio', 'More', 'News',
             'Story', 'Article', 'Report', 'Update', 'Breaking', 'Live', 'Latest',
@@ -258,11 +277,32 @@ class QualityService:
             'After', 'During', 'While', 'Since', 'Until', 'Through', 'From', 'For',
             'At', 'In', 'On', 'By', 'With', 'Without', 'About', 'Against', 'Between',
             'Among', 'Through', 'During', 'Before', 'After', 'Above', 'Below', 'Up',
-            'Down', 'Out', 'Off', 'Over', 'Under', 'Again', 'Further', 'Then', 'Once'
+            'Down', 'Out', 'Off', 'Over', 'Under', 'Again', 'Further', 'Then', 'Once',
+            # Additional problematic extractions from our data analysis
+            'Said', 'Told', 'Including', 'But', 'And', 'Or', 'White', 'House'
         }
         
+        # Additional filtering patterns
+        invalid_patterns = [
+            r'^.{1,2}$',  # Too short
+            r'^\d+$',     # Numbers only  
+            r'.*\n.*',    # Contains newlines
+            r'who$',      # Fragment
+        ]
+        
         for match in matches:
-            if match not in non_entities and len(match) > 3:
+            # Basic validation
+            if match in non_entities or len(match) <= 2:
+                continue
+                
+            # Pattern-based validation
+            valid = True
+            for pattern in invalid_patterns:
+                if re.match(pattern, match.lower()):
+                    valid = False
+                    break
+                    
+            if valid:
                 entities.add(match.lower())
         
         return entities

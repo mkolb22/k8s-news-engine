@@ -131,7 +131,7 @@ echo "📝 Useful commands:"
 echo "------------------"
 echo "View RSS fetcher logs:     kubectl logs -f deployment/rss-fetcher"
 echo "View analytics job:        kubectl get cronjobs"
-echo "Connect to PostgreSQL:     kubectl exec -it -n postgresql deployment/postgresql -c postgresql -- psql -U postgres -d truthdb"
+echo "Connect to PostgreSQL:     kubectl exec -it -n postgresql deployment/postgresql -c postgresql -- psql -U postgres -d newsdb"
 echo "Trigger analytics job:     kubectl create job --from=cronjob/analytics-job analytics-manual-$(date +%s)"
 
 echo ""
