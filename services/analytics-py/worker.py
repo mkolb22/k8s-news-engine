@@ -143,8 +143,8 @@ def score_best_source(articles, claims, outlet_profiles):
     pubs = [r["published_at"] for r in articles if r["published_at"]]
     if not pubs:
         return "", 0.0
-    q1 = np.quantile([pd.Timestamp(p).value for p in pubs], 0.25)
-    earliest_cut = pd.Timestamp(q1)
+    q1 = np.quantile([pd.Timestamp(p).tz_localize(None).value for p in pubs], 0.25)
+    earliest_cut = pd.Timestamp(q1).tz_localize(None)
 
     # Aggregate per outlet
     per = defaultdict(lambda: {"verified":0, "total":0, "primacy":0.0})
@@ -158,7 +158,7 @@ def score_best_source(articles, claims, outlet_profiles):
             per[o]["verified"] += 1
     for r in articles:
         dom = (r["outlet_name"] or "").lower()
-        if r["published_at"] and pd.Timestamp(r["published_at"]) <= earliest_cut:
+        if r["published_at"] and pd.Timestamp(r["published_at"]).tz_localize(None) <= earliest_cut:
             per[dom]["primacy"] += 1
 
     best_dom, best_score = "", -1.0

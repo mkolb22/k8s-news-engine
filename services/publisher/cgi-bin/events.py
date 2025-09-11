@@ -313,8 +313,7 @@ def generate_event_summary(event_articles):
     return title
 
 def main():
-    print("Content-Type: text/html
-")
+    print("Content-Type: text/html\n")
     
     try:
         # Get page parameter from URL
@@ -372,7 +371,6 @@ def main():
         <p>AI-powered event detection powered by quality-service</p>
         <div style="margin-top: 15px;">
             <a href="/cgi-bin/index.py" style="color: #ecf0f1; margin-right: 20px; text-decoration: none;">📰 All Articles</a>
-            <a href="/cgi-bin/events_legacy.py" style="color: #ecf0f1; text-decoration: none;">🎯 Event Analysis (Legacy)</a>
         </div>
     </div>
     
@@ -560,7 +558,6 @@ def main():
 <h1>Error</h1>
 <p>An error occurred while processing the request:</p>
 <pre>{str(e)}</pre>
-<p><a href="/cgi-bin/events_legacy.py">Try Legacy Event Analysis</a></p>
 </body>
 </html>""")
         print(f"<!-- Error details: {traceback.format_exc()} -->", file=sys.stderr)

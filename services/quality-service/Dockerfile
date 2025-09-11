@@ -11,8 +11,13 @@
 # v1.5.0 - Added improved NER system with spaCy for better event grouping
 # v1.5.1 - Added startup database health check with NER model validation
 # v1.5.2 - Fixed health check to use correct NER column names (ner_extracted_at)
+# v1.6.0 - Added performance-driven configuration system with database-stored settings and auto-tuning
+# v1.6.2 - Added detailed error logging to diagnose event creation database insertion failures
+# v1.6.3 - Added fetchone() debugging to investigate psycopg2 return values
+# v1.6.4 - Fixed NER data processing by including articles missing NER data regardless of age
+# v1.6.5 - Fixed event creation bug: result[0] -> result['id'] for RealDictRow handling
 #
-# Build command: docker build -t k8s-news-engine/quality-service:v1.5.2 .
+# Build command: docker build -t k8s-news-engine/quality-service:v1.6.5 .
 
 FROM python:3.11-alpine
 
@@ -43,6 +48,8 @@ COPY reputation_analyzer.py .
 COPY rss_agency_validator.py .
 COPY improved_ner.py .
 COPY startup_health_check.py .
+COPY performance_scorer.py .
+COPY performance_config_manager.py .
 
 # Create log directory
 RUN mkdir -p /var/log

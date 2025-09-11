@@ -20,7 +20,7 @@ spec:
     spec:
       containers:
       - name: lighttpd
-        image: k8s-news-engine/publisher:v1.2.0
+        image: k8s-news-engine/publisher:v1.2.2
         imagePullPolicy: Never
         command: ["/bin/sh"]
         args: ["-c", "export DATABASE_URL=\"postgresql://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:${DB_PORT}/${DB_NAME}\" && python3 /app/startup_health_check.py && lighttpd -D -f /etc/lighttpd/lighttpd.conf"]

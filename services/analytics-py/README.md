@@ -96,7 +96,7 @@ docker run --rm \
 # Test with local PostgreSQL (development only)
 docker run --rm --network host \
   -e DATABASE_URL="postgresql+psycopg2://appuser:newsengine2024@localhost:5432/newsdb" \
-  k8s-news-engine/analytics-py:v2.0.2
+  k8s-news-engine/analytics-py:v2.0.3
 
 # Production deployment uses Kubernetes secrets for credential management
 ```
@@ -110,6 +110,7 @@ docker run --rm --network host \
 
 ## Version History
 
+- **v2.0.3**: Fixed timezone comparison error in best source scoring algorithm causing analytics worker failures
 - **v2.0.2**: Added secure database credential management with Kubernetes secrets
 - **v2.0.1**: Enhanced startup health checks with database and analytics dependencies validation
 - **v2.0.0**: Initial analytics worker with EQIS computation

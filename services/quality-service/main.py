@@ -41,6 +41,16 @@ class QualityService:
         self.sleep_interval = int(os.environ.get('SLEEP_INTERVAL', '60'))  # seconds
         self.running = True
         
+        # Initialize performance-driven configuration manager
+        from performance_config_manager import PerformanceConfigurationManager
+        self.config_manager = PerformanceConfigurationManager(self.db_url)
+        self.grouping_config = self.config_manager.load_startup_configuration()
+        logger.info(f"Performance-driven configuration loaded: {self.grouping_config}")
+        
+        # Performance tracking
+        self.batch_start_time = None
+        self.performance_metrics = {}
+        
         # Authority scores will be loaded from database
         self.authority_outlets = {}
         self.load_authority_scores()
@@ -69,7 +79,9 @@ class QualityService:
         except Exception as e:
             logger.warning(f"Could not generate RSS validation report: {e}")
         
-        logger.info(f"Quality Service initialized with {len(self.authority_outlets)} outlet authority scores, writing quality analyzer, and reputation analyzer")
+        logger.info(f"Quality Service initialized with performance-driven configuration, "
+                   f"{len(self.authority_outlets)} outlet authority scores, "
+                   f"writing quality analyzer, and reputation analyzer")
 
     def get_db_connection(self):
         """Get database connection with timezone configuration"""
@@ -421,12 +433,23 @@ class QualityService:
         return entities
 
     def group_articles_into_events(self, articles: List[Dict]) -> Dict[int, List[Dict]]:
-        """Group articles into events using similarity matching"""
+        """Group articles into events using performance-driven configuration"""
         events = {}
         used_articles = set()
         event_id = 1
         
-        logger.info(f"Grouping {len(articles)} articles into events")
+        # Use performance-driven configuration
+        config = self.grouping_config
+        min_shared = config['min_shared_entities']
+        overlap_threshold = config['entity_overlap_threshold']
+        min_title_keywords = config['min_title_keywords']
+        title_bonus = config['title_keyword_bonus']
+        max_time_hours = config['max_time_diff_hours']
+        allow_same_outlet = config['allow_same_outlet']
+        
+        logger.info(f"Grouping {len(articles)} articles into events using config: "
+                   f"min_entities={min_shared}, overlap={overlap_threshold:.3f}, "
+                   f"time_window={max_time_hours}h")
         
         for i, article1 in enumerate(articles):
             if i in used_articles:
@@ -444,7 +467,7 @@ class QualityService:
             entities1 = self.extract_key_entities(text1)
             
             # Extract title keywords
-            title1_words = set(re.findall(r'\b[a-z]{3,}\b', title1))
+            title1_words = set(re.findall(r'[a-z]{3,}', title1))
             common_words = {'the', 'and', 'for', 'are', 'but', 'not', 'you', 'all', 'can', 'had', 
                            'her', 'was', 'one', 'our', 'out', 'day', 'get', 'has', 'him', 'his',
                            'how', 'man', 'new', 'now', 'old', 'see', 'two', 'who', 'boy', 'did',
@@ -456,12 +479,12 @@ class QualityService:
                 if j <= i or j in used_articles:
                     continue
                 
-                # Don't group articles from same outlet
+                # Check outlet policy
                 outlet2 = article2.get('outlet_name', article2.get('outlet', ''))
-                if outlet2 == outlet1:
+                if not allow_same_outlet and outlet2 == outlet1:
                     continue
                 
-                # Time check - must be within 24 hours for same event
+                # Time check - configurable time window
                 pub_time2 = article2.get('published_at')
                 if pub_time1 and pub_time2:
                     try:
@@ -471,12 +494,12 @@ class QualityService:
                             pub_time2 = pub_time2.replace(tzinfo=timezone.utc)
                         
                         time_diff = abs((pub_time1 - pub_time2).total_seconds() / 3600)
-                        if time_diff > 24:
+                        if time_diff > max_time_hours:
                             continue
                     except Exception:
                         continue
                 
-                # Entity matching
+                # Entity matching with configurable thresholds
                 title2 = (article2.get('title', '') or '').lower()
                 text2 = (article2.get('text', '') or '')[:2000]
                 entities2 = self.extract_key_entities(text2)
@@ -485,19 +508,33 @@ class QualityService:
                     shared_entities = entities1 & entities2
                     min_entities = min(len(entities1), len(entities2))
                     
-                    # Same requirements as publisher (4 entities AND 50% of smaller set)
-                    if len(shared_entities) < 4 or len(shared_entities) < min_entities * 0.5:
+                    # Dynamic threshold: minimum required entities OR overlap percentage
+                    required_shared = max(min_shared, min_entities * overlap_threshold)
+                    
+                    if len(shared_entities) < required_shared:
                         continue
                 else:
                     continue
                 
-                # Title keyword overlap
-                title2_words = set(re.findall(r'\b[a-z]{3,}\b', title2))
+                # Title keyword overlap with bonus system
+                title2_words = set(re.findall(r'[a-z]{3,}', title2))
                 title2_words = title2_words - common_words
                 
+                title_match_bonus = 0
                 if title1_words and title2_words:
                     title_overlap = len(title1_words & title2_words)
-                    if title_overlap < 3:  # Same as publisher - at least 3 shared keywords
+                    
+                    # Apply title bonus to reduce entity requirement
+                    if title_overlap >= min_title_keywords:
+                        title_match_bonus = min(title_overlap * title_bonus, required_shared * 0.5)
+                        
+                        # Reduce entity requirement based on title match
+                        adjusted_requirement = max(1, required_shared - title_match_bonus)
+                        
+                        if len(shared_entities) < adjusted_requirement:
+                            continue
+                    elif min_title_keywords > 0:
+                        # Title keywords required but not met
                         continue
                 
                 # If all checks pass, add to event
@@ -508,25 +545,37 @@ class QualityService:
             if len(event_articles) > 1:
                 events[event_id] = event_articles
                 event_id += 1
+                logger.debug(f"Created event {event_id-1} with {len(event_articles)} articles")
         
-        logger.info(f"Created {len(events)} events from {len(articles)} articles")
+        logger.info(f"Created {len(events)} events from {len(articles)} articles "
+                   f"({len(used_articles)}/{len(articles)} articles grouped)")
         return events
 
     def process_articles_batch(self) -> int:
         """Process a batch of articles that need quality scoring and event grouping"""
+        batch_start = datetime.now(timezone.utc)
+        
         try:
             conn = self.get_db_connection()
             cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
             
-            # Get articles that need processing (last 72 hours, no quality score yet)
+            # Get articles that need processing (prioritize recent + missing NER data)
             cur.execute("""
                 SELECT id, url, title, outlet_name, published_at, text
                 FROM articles 
-                WHERE published_at > NOW() - INTERVAL '72 hours'
-                    AND text IS NOT NULL 
+                WHERE text IS NOT NULL 
                     AND LENGTH(text) > 100
-                    AND (quality_score IS NULL OR quality_computed_at < NOW() - INTERVAL '1 hour')
-                ORDER BY published_at DESC 
+                    AND (
+                        -- Recent articles needing quality updates
+                        (published_at > NOW() - INTERVAL '72 hours' 
+                         AND (quality_score IS NULL OR quality_computed_at < NOW() - INTERVAL '1 hour'))
+                        OR 
+                        -- Any articles missing NER data (permanent backfill)
+                        (ner_extracted_at IS NULL)
+                    )
+                ORDER BY 
+                    CASE WHEN ner_extracted_at IS NULL THEN 0 ELSE 1 END,  -- Prioritize missing NER
+                    published_at DESC 
                 LIMIT %s
             """, (self.batch_size,))
             
@@ -540,9 +589,14 @@ class QualityService:
             
             logger.info(f"Processing {len(articles)} articles")
             
+            # Track processing start
+            processing_start = datetime.now(timezone.utc)
+            
             # Calculate quality scores and extract NER data
             article_scores = {}
             article_ner_data = {}
+            entities_extracted_total = 0
+            
             for article in articles:
                 score = self.calculate_article_quality_score(dict(article))
                 article_scores[article['id']] = score
@@ -550,9 +604,24 @@ class QualityService:
                 # Extract NER entities
                 ner_entities = self.extract_ner_entities(article.get('text', ''))
                 article_ner_data[article['id']] = ner_entities
+                
+                # Count total entities extracted
+                entities_extracted_total += sum(len(entities) for entities in ner_entities.values())
             
             # Group articles into events
             events = self.group_articles_into_events([dict(a) for a in articles])
+            
+            # Calculate performance metrics
+            processing_end = datetime.now(timezone.utc)
+            processing_time_ms = int((processing_end - processing_start).total_seconds() * 1000)
+            
+            # Calculate coverage and event metrics
+            articles_in_events = sum(len(event_articles) for event_articles in events.values())
+            coverage_percentage = (articles_in_events / len(articles)) * 100 if len(articles) > 0 else 0
+            singleton_events = sum(1 for event_articles in events.values() if len(event_articles) == 1)
+            avg_articles_per_event = articles_in_events / len(events) if len(events) > 0 else 0
+            event_creation_rate = len(events) / len(articles) if len(articles) > 0 else 0
+            entities_per_article = entities_extracted_total / len(articles) if len(articles) > 0 else 0
             
             # Update database with quality scores and event IDs
             processed_count = 0
@@ -582,22 +651,113 @@ class QualityService:
                 ))
                 processed_count += 1
             
-            # Then update event IDs for grouped articles
+            # Create actual event records and link articles
             for event_id, event_articles in events.items():
-                article_ids = [a['id'] for a in event_articles]
-                cur.execute("""
-                    UPDATE articles 
-                    SET computed_event_id = %s
-                    WHERE id = ANY(%s)
-                """, (event_id, article_ids))
-                
-                logger.info(f"Event {event_id}: grouped {len(event_articles)} articles")
+                try:
+                    article_ids = [a['id'] for a in event_articles]
+                    
+                    # Generate event title from most relevant article
+                    primary_article = max(event_articles, key=lambda x: len(x.get('title', '')))
+                    event_title = primary_article.get('title', f'Event {event_id}')[:255]  # Limit title length
+                    
+                    # Create description from article titles
+                    article_titles = [a.get('title', '') for a in event_articles if a.get('title')]
+                    event_description = f"Event grouping {len(event_articles)} related articles: " + "; ".join(article_titles)[:1000]
+                    
+                    logger.info(f"Attempting to create event for {len(event_articles)} articles with title: '{event_title[:50]}...'")
+                    
+                    # Create event record
+                    try:
+                        cur.execute("""
+                            INSERT INTO events (title, description, created_at, updated_at, active)
+                            VALUES (%s, %s, NOW(), NOW(), true)
+                            RETURNING id
+                        """, (event_title, event_description))
+                        
+                        result = cur.fetchone()
+                        logger.info(f"fetchone() returned: {result}")
+                        if result is None:
+                            raise Exception("INSERT returned no result")
+                        actual_event_id = result['id']
+                        logger.info(f"Successfully inserted event record with ID: {actual_event_id}")
+                    except Exception as e:
+                        logger.error(f"Failed to insert event record: {e}")
+                        logger.error(f"Event title: '{event_title}'")
+                        logger.error(f"Event description length: {len(event_description)}")
+                        raise
+                    
+                    # Create event-article relationships
+                    try:
+                        relationship_count = 0
+                        for article in event_articles:
+                            cur.execute("""
+                                INSERT INTO event_articles (event_id, article_id, relevance_score, added_at)
+                                VALUES (%s, %s, %s, NOW())
+                            """, (actual_event_id, article['id'], 1.0))  # Default relevance score
+                            relationship_count += 1
+                        logger.info(f"Successfully created {relationship_count} event-article relationships")
+                    except Exception as e:
+                        logger.error(f"Failed to insert event-article relationships: {e}")
+                        logger.error(f"Event ID: {actual_event_id}, Article IDs: {[a['id'] for a in event_articles]}")
+                        raise
+                    
+                    # Also update computed_event_id for backwards compatibility
+                    try:
+                        cur.execute("""
+                            UPDATE articles 
+                            SET computed_event_id = %s
+                            WHERE id = ANY(%s)
+                        """, (actual_event_id, article_ids))
+                        affected_rows = cur.rowcount
+                        logger.info(f"Successfully updated {affected_rows} articles with computed_event_id: {actual_event_id}")
+                    except Exception as e:
+                        logger.error(f"Failed to update articles with computed_event_id: {e}")
+                        logger.error(f"Event ID: {actual_event_id}, Article IDs: {article_ids}")
+                        raise
+                    
+                    logger.info(f"Created Event {actual_event_id}: grouped {len(event_articles)} articles with title: '{event_title[:50]}...'")
+                    logger.info(f"Event {actual_event_id}: created {len(event_articles)} article relationships")
+                    
+                except Exception as e:
+                    logger.error(f"Failed to create event {event_id} with {len(event_articles)} articles: {e}")
+                    # Don't re-raise here - continue with other events
+                    continue
             
             conn.commit()
             cur.close()
             conn.close()
             
-            logger.info(f"Successfully processed {processed_count} articles, created {len(events)} events")
+            # Save performance metrics
+            performance_metrics = {
+                'articles_processed': len(articles),
+                'events_created': len(events),
+                'processing_time_ms': processing_time_ms,
+                'entities_extracted_total': entities_extracted_total,
+                'event_creation_rate': event_creation_rate,
+                'coverage_percentage': coverage_percentage,
+                'avg_articles_per_event': avg_articles_per_event,
+                'singleton_events_count': singleton_events,
+                'entities_per_article': entities_per_article
+            }
+            
+            # Save performance snapshot every 5 minutes or when significant events occur
+            current_time = datetime.now(timezone.utc)
+            save_snapshot = (
+                not hasattr(self, 'last_snapshot_time') or
+                (current_time - self.last_snapshot_time).seconds >= 300 or  # 5 minutes
+                len(events) > 0  # Always save when events are created
+            )
+            
+            if save_snapshot:
+                try:
+                    snapshot_id = self.config_manager.save_performance_snapshot(performance_metrics)
+                    self.last_snapshot_time = current_time
+                    logger.info(f"Performance snapshot saved (ID: {snapshot_id})")
+                except Exception as e:
+                    logger.error(f"Failed to save performance snapshot: {e}")
+            
+            logger.info(f"Successfully processed {processed_count} articles, created {len(events)} events "
+                       f"(coverage: {coverage_percentage:.1f}%, processing: {processing_time_ms}ms)")
             return processed_count
             
         except Exception as e:

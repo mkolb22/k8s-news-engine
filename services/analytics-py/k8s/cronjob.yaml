@@ -24,7 +24,7 @@ spec:
           restartPolicy: OnFailure
           containers:
           - name: analytics
-            image: k8s-news-engine/analytics-py:v2.0.2
+            image: k8s-news-engine/analytics-py:v2.0.3
             imagePullPolicy: Never
             env:
             - name: DB_USER
