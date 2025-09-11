@@ -20,7 +20,7 @@ spec:
     spec:
       containers:
       - name: lighttpd
-        image: k8s-news-engine/publisher:v1.1.0
+        image: k8s-news-engine/publisher:v1.2.0
         imagePullPolicy: Never
         command: ["/bin/sh"]
         args: ["-c", "export DATABASE_URL=\"postgresql://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:${DB_PORT}/${DB_NAME}\" && python3 /app/startup_health_check.py && lighttpd -D -f /etc/lighttpd/lighttpd.conf"]
@@ -59,6 +59,8 @@ spec:
           mountPath: /var/www/htdocs
         - name: logs
           mountPath: /var/log/lighttpd
+        - name: run
+          mountPath: /run
         resources:
           requests:
             memory: "64Mi"
@@ -104,5 +106,7 @@ spec:
           - key: index.html
             path: index.html
       - name: logs
+        emptyDir: {}
+      - name: run
         emptyDir: {}
       restartPolicy: Always

@@ -29,21 +29,26 @@ RUN pip3 install --break-system-packages --no-cache-dir \
 # Download NLTK data including NER support
 RUN python3 -c "import nltk; nltk.download('punkt'); nltk.download('stopwords'); nltk.download('maxent_ne_chunker'); nltk.download('words'); nltk.download('averaged_perceptron_tagger')" || true
 
-# Create directories
+# Create directories including a writable run directory for PID files
 RUN mkdir -p /var/www/htdocs \
     && mkdir -p /var/www/cgi-bin \
     && mkdir -p /var/log/lighttpd \
-    && mkdir -p /app
+    && mkdir -p /app \
+    && mkdir -p /tmp/run \
+    && mkdir -p /var/run/lighttpd \
+    && chmod 777 -R /tmp \
+    && chmod o+t -R /tmp
 
 # Copy web content and CGI scripts
 COPY htdocs/ /var/www/htdocs/
 COPY cgi-bin/ /var/www/cgi-bin/
 COPY startup_health_check.py /app/startup_health_check.py
-RUN chmod +x /var/www/cgi-bin/* && chmod +x /app/startup_health_check.py
+COPY start_lighttpd.sh /app/start_lighttpd.sh
+RUN chmod +x /var/www/cgi-bin/* && chmod +x /app/startup_health_check.py && chmod +x /app/start_lighttpd.sh
 
 # Create non-root user
 RUN adduser -D -s /bin/sh -u 1000 publisher && \
-    chown -R publisher:publisher /var/www /var/log/lighttpd /app
+    chown -R publisher:publisher /var/www /var/log/lighttpd /app /tmp/run /var/run/lighttpd
 
 # Set timezone environment variable for consistent timezone handling
 ENV TZ=UTC
@@ -54,4 +59,4 @@ EXPOSE 8080
 # Switch to non-root user  
 USER publisher
 
-CMD ["sh", "-c", "python3 /app/startup_health_check.py && lighttpd -D -f /etc/lighttpd/lighttpd.conf"]
+CMD ["sh", "-c", "python3 /app/startup_health_check.py && /app/start_lighttpd.sh"]

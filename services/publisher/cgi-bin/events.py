@@ -91,8 +91,59 @@ def calculate_eqis_score(event_articles):
     total_score = coverage_score + authority_score + recency_score + diversity_score + coherence_score
     return min(total_score, 100)
 
-def get_events_from_database(use_fallback=False):
-    """Get pre-computed events with quality scores from database"""
+def get_config_from_db():
+    """Get configuration values from system_config table"""
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        
+        # Get publisher configuration
+        cur.execute("""
+            SELECT config_key, config_value FROM system_config 
+            WHERE config_key IN ('publisher_page_size', 'max_display_articles', 'article_retention_hours')
+        """)
+        config_rows = cur.fetchall()
+        cur.close()
+        conn.close()
+        
+        # Convert to dict with defaults
+        config = {
+            'publisher_page_size': 100,
+            'max_display_articles': 500,
+            'article_retention_hours': 168
+        }
+        
+        for row in config_rows:
+            try:
+                config[row[0]] = int(row[1])
+            except (ValueError, TypeError):
+                pass  # Keep default value
+                
+        return config
+        
+    except Exception as e:
+        print(f"<!-- Config error: {str(e)} -->", file=sys.stderr)
+        # Return defaults if config unavailable
+        return {
+            'publisher_page_size': 100,
+            'max_display_articles': 500,
+            'article_retention_hours': 168
+        }
+
+def get_events_from_database(use_fallback=False, page=1, page_size=None):
+    """Get pre-computed events with quality scores from database with pagination"""
+    config = get_config_from_db()
+    
+    # Use configured page size or parameter
+    if page_size is None:
+        page_size = config['publisher_page_size']
+    
+    # Calculate offset
+    offset = (page - 1) * page_size
+    
+    # Use configurable retention period
+    retention_hours = config['article_retention_hours']
+    
     conn = get_db_connection()
     cur = conn.cursor()
     
@@ -106,12 +157,12 @@ def get_events_from_database(use_fallback=False):
                 a.published_at, a.text, 
                 COALESCE(a.computed_event_id, 0) as computed_event_id  -- Default event_id
             FROM articles a
-            WHERE a.published_at > NOW() - INTERVAL '72 hours'
+            WHERE a.published_at > NOW() - INTERVAL '1 hour' * %s
                 AND a.text IS NOT NULL 
                 AND LENGTH(a.text) > 100
             ORDER BY a.published_at DESC
-            LIMIT 300
-        """)
+            LIMIT %s OFFSET %s
+        """, (retention_hours, page_size, offset))
     else:
         # Try to get pre-computed quality scores first
         cur.execute("""
@@ -119,23 +170,40 @@ def get_events_from_database(use_fallback=False):
                 a.id, a.url, a.title, a.outlet_name, a.quality_score, a.published_at, 
                 a.text, a.computed_event_id
             FROM articles a
-            WHERE a.published_at > NOW() - INTERVAL '72 hours'
+            WHERE a.published_at > NOW() - INTERVAL '1 hour' * %s
                 AND a.quality_score IS NOT NULL 
                 AND a.computed_event_id IS NOT NULL
                 AND a.text IS NOT NULL 
                 AND LENGTH(a.text) > 100
             ORDER BY a.quality_score DESC, a.published_at DESC
-            LIMIT 300
-        """)
+            LIMIT %s OFFSET %s
+        """, (retention_hours, page_size, offset))
     
     articles = cur.fetchall()
     
-    # Get total counts for statistics
+    # Get total counts for statistics and pagination
     cur.execute("SELECT COUNT(*) FROM events")
     event_count = cur.fetchone()[0]
     
-    cur.execute("SELECT COUNT(*) FROM articles WHERE published_at > NOW() - INTERVAL '72 hours'")
-    article_count = cur.fetchone()[0]
+    # Get total article count for pagination
+    if use_fallback:
+        cur.execute("""
+            SELECT COUNT(*) FROM articles 
+            WHERE published_at > NOW() - INTERVAL '1 hour' * %s
+                AND text IS NOT NULL 
+                AND LENGTH(text) > 100
+        """, (retention_hours,))
+    else:
+        cur.execute("""
+            SELECT COUNT(*) FROM articles 
+            WHERE published_at > NOW() - INTERVAL '1 hour' * %s
+                AND quality_score IS NOT NULL 
+                AND computed_event_id IS NOT NULL
+                AND text IS NOT NULL 
+                AND LENGTH(text) > 100
+        """, (retention_hours,))
+    
+    total_available_articles = cur.fetchone()[0]
     
     cur.close()
     conn.close()
@@ -163,7 +231,17 @@ def get_events_from_database(use_fallback=False):
     
     events_with_scores.sort(key=lambda x: x[0], reverse=True)
     
-    return events_with_scores, len(articles), event_count, article_count
+    # Calculate pagination info
+    total_pages = (total_available_articles + page_size - 1) // page_size if page_size > 0 else 1
+    pagination_info = {
+        'current_page': page,
+        'page_size': page_size,
+        'total_articles': total_available_articles,
+        'total_pages': total_pages,
+        'articles_on_page': len(articles)
+    }
+    
+    return events_with_scores, len(articles), event_count, total_available_articles, pagination_info
 
 def group_articles_fallback(articles):
     """Simple fallback grouping when quality service is unavailable"""
@@ -235,15 +313,26 @@ def generate_event_summary(event_articles):
     return title
 
 def main():
-    print("Content-Type: text/html\n")
+    print("Content-Type: text/html
+")
     
     try:
+        # Get page parameter from URL
+        import cgi
+        form = cgi.FieldStorage()
+        page = int(form.getvalue('page', '1'))
+        page_size = int(form.getvalue('page_size', '0'))  # 0 means use default
+        
+        # Ensure valid page number
+        if page < 1:
+            page = 1
+        
         # Try to get pre-computed events from database
-        events_with_scores, source_articles, event_count, total_articles = get_events_from_database()
+        events_with_scores, source_articles, event_count, total_articles, pagination_info = get_events_from_database(page=page, page_size=page_size if page_size > 0 else None)
         
         # If no pre-computed events, try fallback mode
         if len(events_with_scores) == 0:
-            events_with_scores, source_articles, event_count, total_articles = get_events_from_database(use_fallback=True)
+            events_with_scores, source_articles, event_count, total_articles, pagination_info = get_events_from_database(use_fallback=True, page=page, page_size=page_size if page_size > 0 else None)
         
         print(f"""<!DOCTYPE html>
 <html>
@@ -295,6 +384,7 @@ def main():
         <div class="stat-card">
             <h3>Source Articles</h3>
             <div class="number">{source_articles}</div>
+            <div style="font-size: 0.8em; color: #7f8c8d; margin-top: 5px;">Page {pagination_info['current_page']} of {pagination_info['total_pages']}</div>
         </div>
         <div class="stat-card">
             <h3>Coverage Period</h3>
@@ -304,8 +394,57 @@ def main():
             <h3>Performance</h3>
             <div style="color: #27ae60; font-weight: bold;">Pre-computed</div>
         </div>
-    </div>
-    
+    </div>""")
+        
+        # Add pagination controls
+        if pagination_info['total_pages'] > 1:
+            print(f"""
+    <div style="background: white; padding: 15px; border-radius: 5px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 20px; text-align: center;">
+        <div style="margin-bottom: 10px;">
+            <strong>Page {pagination_info['current_page']} of {pagination_info['total_pages']}</strong> 
+            ({pagination_info['articles_on_page']} articles of {pagination_info['total_articles']} total)
+        </div>
+        <div class="pagination">""")
+            
+            # Previous button
+            if page > 1:
+                prev_page = page - 1
+                print(f'            <a href="?page={prev_page}" style="display: inline-block; padding: 8px 15px; margin: 0 5px; background: #3498db; color: white; text-decoration: none; border-radius: 5px;">← Previous</a>')
+            else:
+                print('            <span style="display: inline-block; padding: 8px 15px; margin: 0 5px; background: #bdc3c7; color: white; border-radius: 5px;">← Previous</span>')
+            
+            # Page numbers (show current page and a few around it)
+            start_page = max(1, page - 2)
+            end_page = min(pagination_info['total_pages'], page + 2)
+            
+            if start_page > 1:
+                print(f'            <a href="?page=1" style="display: inline-block; padding: 8px 12px; margin: 0 2px; background: #ecf0f1; color: #2c3e50; text-decoration: none; border-radius: 3px;">1</a>')
+                if start_page > 2:
+                    print('            <span style="padding: 8px 5px;">...</span>')
+            
+            for p in range(start_page, end_page + 1):
+                if p == page:
+                    print(f'            <span style="display: inline-block; padding: 8px 12px; margin: 0 2px; background: #2c3e50; color: white; border-radius: 3px; font-weight: bold;">{p}</span>')
+                else:
+                    print(f'            <a href="?page={p}" style="display: inline-block; padding: 8px 12px; margin: 0 2px; background: #ecf0f1; color: #2c3e50; text-decoration: none; border-radius: 3px;">{p}</a>')
+            
+            if end_page < pagination_info['total_pages']:
+                if end_page < pagination_info['total_pages'] - 1:
+                    print('            <span style="padding: 8px 5px;">...</span>')
+                print(f'            <a href="?page={pagination_info["total_pages"]}" style="display: inline-block; padding: 8px 12px; margin: 0 2px; background: #ecf0f1; color: #2c3e50; text-decoration: none; border-radius: 3px;">{pagination_info["total_pages"]}</a>')
+            
+            # Next button
+            if page < pagination_info['total_pages']:
+                next_page = page + 1
+                print(f'            <a href="?page={next_page}" style="display: inline-block; padding: 8px 15px; margin: 0 5px; background: #3498db; color: white; text-decoration: none; border-radius: 5px;">Next →</a>')
+            else:
+                print('            <span style="display: inline-block; padding: 8px 15px; margin: 0 5px; background: #bdc3c7; color: white; border-radius: 5px;">Next →</span>')
+            
+            print("""
+        </div>
+    </div>""")
+        
+        print(f"""
     <div class="events">
         <h2>Recent Events by EQIS Score (Quality-Service Powered)</h2>""")
         
@@ -357,11 +496,57 @@ def main():
         </div>""")
         
         print("""
-    </div>
-    
+    </div>""")
+        
+        # Add bottom pagination controls
+        if pagination_info['total_pages'] > 1:
+            print(f"""
+    <div style="background: white; padding: 15px; border-radius: 5px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-top: 20px; text-align: center;">
+        <div class="pagination">""")
+            
+            # Previous button
+            if page > 1:
+                prev_page = page - 1
+                print(f'            <a href="?page={prev_page}" style="display: inline-block; padding: 8px 15px; margin: 0 5px; background: #3498db; color: white; text-decoration: none; border-radius: 5px;">← Previous</a>')
+            else:
+                print('            <span style="display: inline-block; padding: 8px 15px; margin: 0 5px; background: #bdc3c7; color: white; border-radius: 5px;">← Previous</span>')
+            
+            # Page numbers
+            start_page = max(1, page - 2)
+            end_page = min(pagination_info['total_pages'], page + 2)
+            
+            if start_page > 1:
+                print(f'            <a href="?page=1" style="display: inline-block; padding: 8px 12px; margin: 0 2px; background: #ecf0f1; color: #2c3e50; text-decoration: none; border-radius: 3px;">1</a>')
+                if start_page > 2:
+                    print('            <span style="padding: 8px 5px;">...</span>')
+            
+            for p in range(start_page, end_page + 1):
+                if p == page:
+                    print(f'            <span style="display: inline-block; padding: 8px 12px; margin: 0 2px; background: #2c3e50; color: white; border-radius: 3px; font-weight: bold;">{p}</span>')
+                else:
+                    print(f'            <a href="?page={p}" style="display: inline-block; padding: 8px 12px; margin: 0 2px; background: #ecf0f1; color: #2c3e50; text-decoration: none; border-radius: 3px;">{p}</a>')
+            
+            if end_page < pagination_info['total_pages']:
+                if end_page < pagination_info['total_pages'] - 1:
+                    print('            <span style="padding: 8px 5px;">...</span>')
+                print(f'            <a href="?page={pagination_info["total_pages"]}" style="display: inline-block; padding: 8px 12px; margin: 0 2px; background: #ecf0f1; color: #2c3e50; text-decoration: none; border-radius: 3px;">{pagination_info["total_pages"]}</a>')
+            
+            # Next button
+            if page < pagination_info['total_pages']:
+                next_page = page + 1
+                print(f'            <a href="?page={next_page}" style="display: inline-block; padding: 8px 15px; margin: 0 5px; background: #3498db; color: white; text-decoration: none; border-radius: 5px;">Next →</a>')
+            else:
+                print('            <span style="display: inline-block; padding: 8px 15px; margin: 0 5px; background: #bdc3c7; color: white; border-radius: 5px;">Next →</span>')
+            
+            print("""
+        </div>
+    </div>""")
+        
+        print(f"""
     <div style="margin-top: 30px; padding: 15px; background: #ecf0f1; border-radius: 5px; text-align: center; color: #7f8c8d; font-size: 0.9em;">
         <strong>Performance Notice:</strong> This page uses pre-computed quality scores and event groupings from the Quality Service for optimal performance.
-        Event groupings are updated every minute by the background service.
+        Event groupings are updated every minute by the background service.<br>
+        <small>Showing {pagination_info['articles_on_page']} articles of {pagination_info['total_articles']} total • Page {pagination_info['current_page']} of {pagination_info['total_pages']} • Retention: {get_config_from_db()['article_retention_hours']} hours</small>
     </div>
 </body>
 </html>""")
