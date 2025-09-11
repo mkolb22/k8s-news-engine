@@ -115,6 +115,27 @@ The service expects these tables to exist:
 4. **Documentation**: Update service README with every code change
 5. **Validation**: Confirm functionality after deployment and document results
 
+### Change Management Protocol
+**For ANY code changes to service containers, follow this mandatory process:**
+
+1. **Code Change**: Make the necessary code modifications
+2. **Container Rebuild**: Rebuild container with semantic version increment
+   ```bash
+   docker build -t k8s-news-engine/<service>:v<X.Y.Z> ./services/<service>
+   ```
+3. **Deployment Update**: Update Kubernetes deployment manifest with new image tag
+4. **Redeploy Container**: Apply changes to cluster
+   ```bash
+   kubectl apply -f services/<service>/k8s/deployment.yaml
+   ```
+5. **Health Check Validation**: Run comprehensive service health checks
+   ```bash
+   kubectl port-forward service/<service> <port>:<port> -n news-engine
+   curl http://localhost:<port>/cgi-bin/health.py  # or appropriate health endpoint
+   ```
+
+**Purpose**: This process validates whether the latest change introduces breaking changes and ensures system stability. No exceptions - even minor code changes must follow this protocol to maintain service reliability and enable quick rollback if needed.
+
 ## Security Implementation
 
 ### Database Credential Management
@@ -146,6 +167,57 @@ env:
 
 **Services Using Secure Credentials:**
 - analytics-py (v2.0.2) - CronJob with startup health checks
-- publisher (v1.1.0) - Web service with runtime credential injection  
+- publisher (v1.2.0) - Web service with runtime credential injection  
 - quality-service (v1.5.2) - Background processing with NER validation
 - rss-fetcher (v2.1.0) - Go binary with shell-based credential construction
+
+## Troubleshooting Guide
+
+### Common Kubernetes Issues
+
+#### Multiple Pod Problem
+**Symptoms:** Multiple replica sets creating conflicting pods in CrashLoopBackOff
+**Solution:**
+```bash
+# Scale deployment to zero
+kubectl scale deployment <service-name> --replicas=0 -n news-engine
+
+# Delete problematic replica sets
+kubectl get rs -n news-engine
+kubectl delete rs <replica-set-name> -n news-engine
+
+# Scale back to desired replicas
+kubectl scale deployment <service-name> --replicas=1 -n news-engine
+```
+
+#### Lighttpd Container Issues
+**Symptoms:** `opening pid-file failed: /var/run/lighttpd/lighttpd.pid: Permission denied`
+**Root Cause:** PID files are unnecessary when running lighttpd in foreground mode (`-D`)
+**Solution:** Remove `server.pid-file` configuration from lighttpd.conf when using foreground mode
+
+#### Container Permission Evolution
+**Issue:** Configurations that worked in previous Kubernetes versions may fail due to evolving security policies
+**Troubleshooting Approach:**
+1. **Verify basics first** - Check database connectivity and service health
+2. **Research common patterns** - Many containerized web server issues have established solutions
+3. **Try incremental fixes** - Attempt configuration changes before container rebuilds
+4. **Clean redeployment** - Delete and redeploy when containers behave unexpectedly
+5. **Document resolution** - Update this guide with successful troubleshooting patterns
+
+#### Mystery Container Injection
+**Symptoms:** Kubernetes creates more containers than defined in deployment spec
+**Solution:** Complete deletion and redeployment clears cached state or webhook artifacts
+```bash
+kubectl delete deployment <service-name> -n news-engine
+kubectl delete configmap <service-name>-config -n news-engine  
+kubectl delete service <service-name> -n news-engine
+kubectl apply -f k8s/ -n news-engine
+```
+
+### Systematic Troubleshooting Methodology
+1. **Address obvious issues first** (replica set conflicts, resource constraints)
+2. **Verify foundational services** (database connectivity, secret availability)
+3. **Research error patterns** (web searches for specific error messages)
+4. **Apply incremental fixes** (configuration before container changes)
+5. **Use clean slate approach** when configuration drift is suspected
+6. **Document successful resolutions** for future reference
